@@ -14,11 +14,13 @@ rm(list = ls())
 ok_save <- TRUE
 Sys.setlocale("LC_TIME", "English_United States")
 
+path_files <- "ouessant_copy/data"
+
 ##=======================================
 # conso train
 ##=======================================
 conso_train <- read.csv2(
-    file = "data/conso_train.csv",
+    file = sprintf("%s/conso_train.csv", path_files),
     dec = ".",
     stringsAsFactors = FALSE
 )
@@ -45,10 +47,12 @@ conso_train <- conso_train %>%
 ##=======================================
 # meteo train
 ##=======================================
+
 meteo_train <- read.csv2(
-    file = "data/meteo_train.csv",
+    file = sprintf("%s/meteo_train.csv", path_files),
     dec = "."
 )
+
 colnames(meteo_train)
 # [1] "date_utc"             "temp"                 "P..hPa."             
 # [4] "HR...."               "P.rosâ.šÂ.e..Â.â.žC." "Visi..km."           
@@ -101,28 +105,28 @@ meteo_train <- meteo_train %>%
 
 
 ##=======================================
-# meteo_pred
+# meteo_prev
 ##=======================================
-meteo_pred <- read.csv2(
-    file = "data/meteo_prev.csv",
+meteo_prev <- read.csv2(
+    file = sprintf("%s/meteo_prev.csv", path_files),
     dec = "."
 )
-colnames(meteo_pred) <- newnames
+colnames(meteo_prev) <- newnames
 
-dt_pred <- strptime(
-    meteo_pred$date_time_utc,
+dt_prev <- strptime(
+    meteo_prev$date_time_utc,
     format = "%d/%m/%y %Hh%M"
 )
-meteo_pred <- meteo_pred %>%
+meteo_prev <- meteo_prev %>%
     tibble::add_column(
-        dt_posix_utc = as.POSIXct(dt_pred),
+        dt_posix_utc = as.POSIXct(dt_prev),
         .after = "date_time_utc"
     )
 ##=======================================
 # sample solution
 ##=======================================
 sample_solution <- read.csv2(
-    file = "data/sample_solution.csv",
+    file = sprintf("%s/sample_solution.csv", path_files),
     dec = ".",
     header = FALSE
 )
@@ -132,8 +136,8 @@ sample_solution <- read.csv2(
 ##=======================================
 
 save(
-    conso_train, meteo_train, meteo_pred, sample_solution,
-    file = "data/cleaned_data.RData"
+    conso_train, meteo_train, meteo_prev, sample_solution,
+    file = sprintf("%s/cleaned_data.RData", path_files)
 )
 
 ##=======================================
@@ -143,17 +147,17 @@ save(
 if(ok_save){
     write.csv2(
         conso_train,
-        file = "data/cleaned_conso_train.csv",
+        file = sprintf("%s/cleaned_conso_train.csv", path_files),
         row.names = FALSE
     )
     write.csv2(
         meteo_train,
-        file = "data/cleaned_meteo_train.csv",
+        file = sprintf("%s/cleaned_meteo_train.csv", path_files),
         row.names = FALSE
     )
     write.csv2(
-        meteo_pred,
-        file = "data/cleaned_meteo_pred.csv",
+        meteo_prev,
+        file = sprintf("%s/cleaned_meteo_prev.csv", path_files),
         row.names = FALSE
     )
 }
