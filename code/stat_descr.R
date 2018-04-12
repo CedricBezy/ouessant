@@ -3,17 +3,25 @@
 # Cedric Bezy, Riwan Mouster
 ##==================================================
 
-rm(list = ls())
+
 library(dplyr)
 library(ggplot2)
 library(lubridate)
 library(magrittr)
 
-load('data/cleaned_data.RData')
+rm(list = ls())
+load('ouessant_copy/data/cleaned_data.RData')
+source('ouessant_copy/code/functions.R')
 
 x <- conso_train$dt_posix
 y <- conso_train$puissance
 plot(x, y)
+
+plot_na(meteo_train)
+plot_na(meteo_prev)
+
+
+
 
 dfconso <- conso_train %>%
     dplyr::mutate(
@@ -55,6 +63,8 @@ dfconso_summa <- bind_rows(
 )
 
 
+
+
 ggplot(data = dfconso_summa,
        mapping = aes(
            x = as.numeric(time),
@@ -68,5 +78,4 @@ ggplot(data = dfconso_summa,
         breaks = seq(0, 24, 2)
     )
 
-round_date(x, "week")
 

@@ -25,9 +25,13 @@ conso_train <- read.csv2(
     stringsAsFactors = FALSE
 )
 
-
 colnames(conso_train) <- c('date_time', 'puissance')
 
+
+## delete doublons
+conso_train <- conso_train[-which(duplicated(conso_train)),]
+
+# dates
 conso_train$date_time[1]
 # [1] "2015-09-13T00:59:59+02:00"
 
@@ -38,11 +42,13 @@ dt <- strptime(
 )
 conso_train <- conso_train %>%
     tibble::add_column(
+        fuseau_hor = paste0("+", sapply(date_conso, function(x){x[2]})),
         dt_posix = as.POSIXct(dt),
-        fuseau_hor = sapply(date_conso, function(x){x[2]}),
         .after = "date_time"
     )
 
+## round posix
+conso_train$dt_posix <- round_date(conso_train$dt_posix, "hour")
 
 ##=======================================
 # meteo train
@@ -92,6 +98,8 @@ colnames(meteo_train) <- newnames
 #         'nebul' = Nebul...octats.   
 #     )
 
+## delete doublons
+meteo_train <- meteo_train[-which(duplicated(meteo_train)),]
 
 dt_train <- strptime(
     meteo_train$date_time_utc,
@@ -99,7 +107,7 @@ dt_train <- strptime(
 )
 meteo_train <- meteo_train %>%
     tibble::add_column(
-        dt_posix_utc = as.POSIXct(dt_train),
+        dt_posix = as.POSIXct(dt_train),
         .after = "date_time_utc"
     )
 
@@ -119,7 +127,7 @@ dt_prev <- strptime(
 )
 meteo_prev <- meteo_prev %>%
     tibble::add_column(
-        dt_posix_utc = as.POSIXct(dt_prev),
+        dt_posix = as.POSIXct(dt_prev),
         .after = "date_time_utc"
     )
 ##=======================================
