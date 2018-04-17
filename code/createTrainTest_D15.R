@@ -9,7 +9,6 @@ library(dplyr)
 library(ggplot2)
 library(lubridate)
 library(magrittr)
-library(randomForest)
 
 Sys.setlocale("LC_TIME", "English_United States")
 
@@ -26,17 +25,20 @@ load('ouessant_copy/data/cleaned_data.RData')
 # make Train Df
 ##==================================================
 
+# consoDf : contains consommation :
+#   - puissance P0 for each 3 hours.
+#   - puissance variation for each 3 hours + 1 (DP1 = P1 - P0)
+#   - puissance variation for each 3 hours + 2 (DP1 = P1 - P0)
+
 consoDf <- conso_train %>%
     dplyr::select(dt_posix, puissance) %>%
     dplyr::mutate(
         Hour = hour(dt_posix),
         H3 = 3 * (Hour %/% 3),
         R3 = Hour %% 3,
-        vpuiss = factor(paste0("P", R3), levels = paste0("P", 0:2))
-    )
-consoDf$dt_posix <- consoDf$dt_posix - 3600 * consoDf$R3
-
-consoGth <- consoDf %>%
+        vpuiss = factor(paste0("P", R3), levels = paste0("P", 0:2)),
+        dt_posix = dt_posix - 3600 * R3
+    ) %>%
     dplyr::select(-Hour, -H3, -R3) %>%
     tidyr::spread(vpuiss, puissance) %>%
     dplyr::mutate(
@@ -45,11 +47,14 @@ consoGth <- consoDf %>%
     ) %>%
     dplyr::select(-P1, -P2)
 
+# meteoDf : meteo without useless data
 
 meteoDf <- meteo_train %>%
-    dplyr::select(-date_time_utc)
+    dplyr::select(-date_time_utc, -neige)
 
-trainDf_withna <- dplyr::right_join(consoGth, meteoDf, by = c("dt_posix")) %>%
+# meteoDf : meteo without useless data
+trainDf_withna <- consoDf %>%
+    dplyr::right_join(meteoDf, by = c("dt_posix")) %>%
     dplyr::filter(!is.na(P0), !is.na(DP1), !is.na(DP2)) %>%
     dplyr::mutate(
         Month = factor(
@@ -64,10 +69,10 @@ trainDf_withna <- dplyr::right_join(consoGth, meteoDf, by = c("dt_posix")) %>%
 # make Test Df
 ##==================================================
 
-testDf_withna <- meteo_prev  %>%
+prevDf_withna <- meteo_prev  %>%
+    dplyr::select(-date_time_utc, -neige) %>%
     dplyr::filter(dt_posix <= as.POSIXct("2016-09-20 23:00:00")) %>%
     dplyr::mutate(
-        date_time_utc = NULL,
         Hour = hour(dt_posix),
         Month = factor(
             month(dt_posix, label = TRUE, abbr = TRUE),
@@ -93,6 +98,7 @@ x_vars <- c(
     "nebul"
 )
 
+## les valeurs des variables x sont reparties dans une seule colonne "value"
 train_gth <- trainDf_withna %>%
     dplyr::mutate(
         D15 = factor(
@@ -103,19 +109,8 @@ train_gth <- trainDf_withna %>%
     ) %>%
     tidyr::gather_("variable", "value", x_vars)
 
-
-test_gth <-  testDf_withna %>%
-    dplyr::mutate(
-        D15 = factor(
-            day(dt_posix) >= 15,
-            levels = c(FALSE, TRUE),
-            labels = c("Qz1", "Qz2")
-        )
-    ) %>%
-    tidyr::gather_("variable", "value", x_vars)
-
-
-
+## Maintenant, pour chaque couple ([temps], variable, value), on peut obtenir la moy et le std
+## ici, temps correspond à chaque heure de chaque 15zaine du mois. 
 train_summa <- train_gth %>%
     dplyr::group_by(variable, Month, D15, Hour) %>%
     dplyr::summarise(
@@ -128,12 +123,8 @@ train_summa <- train_gth %>%
         Std = replace(Std, Std == 0, 1)
     )
 
-sum(is.na(train_summa$Mean))
-
-
-
+## Maintenant, on peut centrer, reduire
 ## Center and Scale X
-
 trainDf <- dplyr::left_join(
     train_gth,
     train_summa,
@@ -142,6 +133,7 @@ trainDf <- dplyr::left_join(
     dplyr::mutate(
         variable = factor(variable, unique(train_gth$variable)),
         value = ifelse(
+            ## On remplace les valeurs manquantes par 0, et on centre et réduit les autres
             !is.na(value),
             ifelse(!is.na(Mean), (value - Mean) / Std, value),
             0
@@ -155,11 +147,19 @@ trainDf <- dplyr::left_join(
 
 
 
-testDf <- dplyr::left_join(
-    test_gth,
-    train_summa,
-    by = c("variable", "Month", "D15", "Hour")
-) %>%
+prevDf <- prevDf_withna %>%
+    dplyr::mutate(
+        D15 = factor(
+            day(dt_posix) >= 15,
+            levels = c(FALSE, TRUE),
+            labels = c("Qz1", "Qz2")
+        )
+    ) %>%
+    tidyr::gather_("variable", "value", x_vars) %>%
+    dplyr::left_join(
+        train_summa,
+        by = c("variable", "Month", "D15", "Hour")
+    ) %>%
     dplyr::mutate(
         variable = factor(variable, unique(train_gth$variable)),
         value = ifelse(
@@ -173,9 +173,6 @@ testDf <- dplyr::left_join(
     ) %>%
     dplyr::arrange(variable, dt_posix) %>%
     tidyr::spread(variable, value)
-
-
-
 
 ## Verif
 x_verif <- trainDf %>%
@@ -187,7 +184,7 @@ x_verif <- trainDf %>%
     )
 
 ## Verif
-y_verif <- testDf %>%
+y_verif <- prevDf %>%
     tidyr::gather_("variable", "value", x_vars) %>%
     dplyr::group_by(Month, D15, Hour) %>%
     dplyr::summarise(
@@ -195,40 +192,12 @@ y_verif <- testDf %>%
         Std = sd(value)
     )
 
-rf_vars <- c(x_vars, "Hour", "Month")
-form0 <- as.formula(paste("P0 ~", paste(rf_vars, collapse = " + ")))
-form1 <- as.formula(paste("DP1 ~", paste(rf_vars, collapse = " + ")))
-form2 <- as.formula(paste("DP2 ~", paste(rf_vars, collapse = " + ")))
+##==================================================
+# Center and Scale + replace NA
+##==================================================
 
-rf0 <- randomForest(form0, data = trainDf)
-p0_pred <- predict(rf0, newdata = testDf)
+save(
+    trainDf, prevDf, x_vars, sample_solution,
+    file = "ouessant_copy/data/train_prev_BY_d15.RData"
+)
 
-rf1 <- randomForest(form1, data = trainDf)
-dp1_pred <- predict(rf1, newdata = testDf)
-p1_pred <- p0_pred + dp1_pred
-
-rf2 <- randomForest(form2, data = trainDf)
-dp2_pred <- predict(rf2, newdata = testDf)
-p2_pred <- p0_pred + dp2_pred
-
-
-submitDf <- data.frame(
-    dt_posix = testDf$dt_posix,
-    P0 = p0_pred,
-    P1 = p1_pred,
-    P2 = p2_pred
-) %>%
-    tidyr::gather(variable, puissance, c(P0, P1, P2)) %>%
-    dplyr::mutate(
-        variable = factor(
-            variable,
-            levels = paste0("P", 0:2),
-            labels = 0:2
-        ),
-        Hour = as.numeric(as.character(variable)),
-        dt_posix = dt_posix + 3600 * Hour
-    ) %>%
-    dplyr::select(dt_posix, puissance) %>%
-    dplyr::arrange(dt_posix)
-
-RMSE <- sqrt(mean((submitDf$puissance - sample_solution$V1) ^ 2))
