@@ -2,8 +2,6 @@
 require(dplyr)
 require(ggplot2)
 
-
-
 # TODAY
 today <- function(format = "%d %B %Y"){
     format <- as.character(format)
@@ -20,7 +18,6 @@ today <- function(format = "%d %B %Y"){
     return(res)
 }
 
-
 count_na <- function(x){
     sum(is.na(x))
 }
@@ -28,8 +25,19 @@ prop_na <- function(x){
     mean(is.na(x))
 }
 
+RMSE <- function(x, y){
+    rmse <- sqrt(mean((x - y) ^ 2))
+    return(rmse)
+}
+
+MAPE <- function(y_pred, y_true){
+    mape <- mean(abs((y_true - y_pred)/y_true))
+    return(mape)
+}
+
 
 plot_na <- function(df, main_title = "Missing Values", sub_title = NULL){
+    ## calcul
     df_plot <- data.frame(
         variable = colnames(df),
         nb_na = sapply(df, count_na),
@@ -58,7 +66,8 @@ plot_na <- function(df, main_title = "Missing Values", sub_title = NULL){
 }
 
 
-RMSE <- function(x, y){
-    sqrt(mean((x - y) ^ 2))
-}
+
+
+
+
 

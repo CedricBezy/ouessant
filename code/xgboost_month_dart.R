@@ -21,16 +21,7 @@ load('ouessant_copy/data/train_prev_BY_month.RData')
 Ytrain <- trainDf[c('P0', 'DP1', 'DP2')]
 
 Xtrain <- trainDf[c('Hour', x_vars)]
-Xtrain <- cbind(
-    Xtrain,
-    tab.disjonctif(trainDf$Month)
-)
-
 Xprev <- prevDf[c('Hour', x_vars)]
-Xprev <- cbind(
-    Xprev,
-    tab.disjonctif(prevDf$Month)
-)
 
 
 bst0 <- xgboost(
@@ -38,7 +29,7 @@ bst0 <- xgboost(
     label = Ytrain$P0,
     max_depth = 10,
     eta = 0.2,
-    min_child_weight = 2,
+    min_child_weight = 0,
     nrounds = 600,
     params = list(booster = "dart",normalize_type = 'forest'),
     objective = "reg:linear"
@@ -49,7 +40,7 @@ bst1 <- xgboost(
     label = Ytrain$DP1,
     max_depth = 10,
     eta = 0.2,
-    min_child_weight = 2,
+    min_child_weight = 0,
     nrounds = 600,
     params = list(booster = "dart",normalize_type= 'forest'),
     objective = "reg:linear"
@@ -60,7 +51,7 @@ bst2 <- xgboost(
     label = Ytrain$DP2,
     max_depth = 10,
     eta = 0.2,
-    min_child_weight = 2,
+    min_child_weight = 0,
     nrounds = 600,
     params = list(booster = "dart",normalize_type = 'forest'),
     objective = "reg:linear"
@@ -94,8 +85,7 @@ submitDf <- puiss_prev %>%
     dplyr::select(dt_posix, puissance) %>%
     dplyr::arrange(dt_posix)
 
+submit <- read.csv('ouessant_copy/data a supp/consovect.csv', header = FALSE)
 
-
-RMSE <- sqrt(mean((submitDf$puissance - sample_solution$V1) ^ 2))
-
-
+rmse <- RMSE(submitDf$puissance, submit$V1)
+mape <- MAPE(submitDf$puissance, submit$V1)

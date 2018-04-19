@@ -3,24 +3,35 @@
 # Cedric Bezy, Riwan Mouster
 ##==================================================
 
+rm(list = ls())
+
+##=======================================
+# needed packages
+##=======================================
+
+# data.frames
 library(dplyr)
 library(tidyr)
-library(ggplot2)
 library(lubridate)
 library(magrittr)
 
-rm(list = ls())
-
-ok_save <- TRUE
+# Set Option : Date in English
 Sys.setlocale("LC_TIME", "English_United States")
 
-path_files <- "ouessant_copy/data"
+completePath <- function(path, ...){
+    path_proj <- "D:/Documents/PROJETS/Kaggle/ouessant/ouessant_copy"
+    complete_path <- sprintf(path, path_proj)
+    return(complete_path)
+}
 
-##=======================================
-# conso train
-##=======================================
+##=====================================================
+# Importation et Nettoyage des Donnees
+##=====================================================
+##--------------------------------
+# CONSO TRAIN
+##--------------------------------
 conso_train <- read.csv2(
-    file = sprintf("%s/conso_train.csv", path_files),
+    file = completePath("%s/data/conso_train.csv"),
     dec = ".",
     stringsAsFactors = FALSE
 )
@@ -50,12 +61,11 @@ conso_train <- conso_train %>%
 ## round posix
 conso_train$dt_posix <- round_date(conso_train$dt_posix, "hour")
 
-##=======================================
+##--------------------------------
 # meteo train
-##=======================================
-
+##--------------------------------
 meteo_train <- read.csv2(
-    file = sprintf("%s/meteo_train.csv", path_files),
+    file = completePath("%s/data/meteo_train.csv"),
     dec = "."
 )
 
@@ -65,6 +75,7 @@ colnames(meteo_train)
 # [7] "Vt..moy...km.h."      "Vt..raf...km.h."      "Vt..dir..Â.â.ž."     
 # [10] "RR.3h..mm."           "Neige..cm."           "Nebul...octats."
 
+## rename meteo_train
 newnames <- c(
     "ï..Date.UTC" = "date_time_utc",
     "TÂ.â.ž..C." =  "temp",
@@ -79,24 +90,7 @@ newnames <- c(
     "Neige..cm." = "neige",
     "Nebul...octats."  = "nebul"
 )
-
 colnames(meteo_train) <- newnames
-    
-# meteo_train <- meteo_train %>%
-#     dplyr::rename(
-#         'date_utc' = ï..Date.UTC,
-#         'temp' = TÂ.â.ž..C.,
-#         'pression' = P..hPa.,
-#         'hr' = HR....,                 
-#         'p_ros' = P.rosâ.šÂ.e..Â.â.žC.,
-#         'visi' = Visi..km.,            
-#         'vt_moy' = Vt..moy...km.h.,
-#         'vt_raf' = Vt..raf...km.h.,    
-#         'vt_dir' = Vt..dir..Â.â.ž.,
-#         'rr_3h' = RR.3h..mm.,          
-#         'neige' = Neige..cm.,
-#         'nebul' = Nebul...octats.   
-#     )
 
 ## delete doublons
 meteo_train <- meteo_train[-which(duplicated(meteo_train)),]
@@ -109,14 +103,14 @@ meteo_train <- meteo_train %>%
     tibble::add_column(
         dt_posix = as.POSIXct(dt_train),
         .after = "date_time_utc"
-    )
+    ) %>%
+    dplyr::select(-date_time_utc)
 
-
-##=======================================
-# meteo_prev
-##=======================================
+##--------------------------------
+# meteo prev
+##--------------------------------
 meteo_prev <- read.csv2(
-    file = sprintf("%s/meteo_prev.csv", path_files),
+    file = completePath("%s/data/meteo_prev.csv"),
     dec = "."
 )
 colnames(meteo_prev) <- newnames
@@ -129,43 +123,35 @@ meteo_prev <- meteo_prev %>%
     tibble::add_column(
         dt_posix = as.POSIXct(dt_prev),
         .after = "date_time_utc"
-    )
-##=======================================
-# sample solution
-##=======================================
-sample_solution <- read.csv2(
-    file = sprintf("%s/sample_solution.csv", path_files),
-    dec = ".",
-    header = FALSE
-)
+    ) %>%
+    dplyr::select(-date_time_utc)
 
-##=======================================
+##--------------------------------
 # save
-##=======================================
-
+##--------------------------------
 save(
-    conso_train, meteo_train, meteo_prev, sample_solution,
-    file = sprintf("%s/cleaned_data.RData", path_files)
+    conso_train, meteo_train, meteo_prev,
+    file = completePath("%s/data/cleaned_data.RData")
 )
 
 ##=======================================
 # write csv
 ##=======================================
 
-if(ok_save){
+if(FALSE){
     write.csv2(
         conso_train,
-        file = sprintf("%s/cleaned_conso_train.csv", path_files),
+        file = completePath("%s/data/cleaned_conso_train.csv"),
         row.names = FALSE
     )
     write.csv2(
         meteo_train,
-        file = sprintf("%s/cleaned_meteo_train.csv", path_files),
+        file = sprintf("%s/data/cleaned_meteo_train.csv", path_files),
         row.names = FALSE
     )
     write.csv2(
         meteo_prev,
-        file = sprintf("%s/cleaned_meteo_prev.csv", path_files),
+        file = sprintf("%s/data/cleaned_meteo_prev.csv", path_files),
         row.names = FALSE
     )
 }
