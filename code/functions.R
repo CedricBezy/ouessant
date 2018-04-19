@@ -58,4 +58,7 @@ plot_na <- function(df, main_title = "Missing Values", sub_title = NULL){
 }
 
 
+RMSE <- function(x, y){
+    sqrt(mean((x - y) ^ 2))
+}
 
