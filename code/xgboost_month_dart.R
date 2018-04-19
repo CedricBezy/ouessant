@@ -32,33 +32,37 @@ Xprev <- cbind(
     tab.disjonctif(prevDf$Month)
 )
 
+
 bst0 <- xgboost(
     data = as.matrix(Xtrain),
     label = Ytrain$P0,
-    max_depth = 5,
-    eta = 1,
-    nrounds = 500,
-    params = list(booster = "dart"),
+    max_depth = 10,
+    eta = 0.2,
+    min_child_weight = 2,
+    nrounds = 600,
+    params = list(booster = "dart",normalize_type = 'forest'),
     objective = "reg:linear"
 )
 
 bst1 <- xgboost(
     data = as.matrix(Xtrain),
     label = Ytrain$DP1,
-    max_depth = 5,
-    eta = 1,
-    nrounds = 500,
-    params = list(booster = "dart"),
+    max_depth = 10,
+    eta = 0.2,
+    min_child_weight = 2,
+    nrounds = 600,
+    params = list(booster = "dart",normalize_type= 'forest'),
     objective = "reg:linear"
 )
 
 bst2 <- xgboost(
     data = as.matrix(Xtrain),
     label = Ytrain$DP2,
-    max_depth = 5,
-    eta = 1,
-    nrounds = 500,
-    params = list(booster = "dart"),
+    max_depth = 10,
+    eta = 0.2,
+    min_child_weight = 2,
+    nrounds = 600,
+    params = list(booster = "dart",normalize_type = 'forest'),
     objective = "reg:linear"
 )
 
@@ -90,7 +94,7 @@ submitDf <- puiss_prev %>%
     dplyr::select(dt_posix, puissance) %>%
     dplyr::arrange(dt_posix)
 
-lines(submitDf)
+
 
 RMSE <- sqrt(mean((submitDf$puissance - sample_solution$V1) ^ 2))
 
