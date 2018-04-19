@@ -9,6 +9,8 @@ library(dplyr)
 library(ggplot2)
 library(lubridate)
 library(magrittr)
+library(gsubfn)
+library(sqldf)
 
 Sys.setlocale("LC_TIME", "English_United States")
 
@@ -57,6 +59,7 @@ trainDf_withna <- consoDf %>%
     dplyr::right_join(meteoDf, by = c("dt_posix")) %>%
     dplyr::filter(!is.na(P0), !is.na(DP1), !is.na(DP2)) %>%
     dplyr::mutate(
+        Weekday = wday(dt_posix, label = TRUE, abbr = FALSE),
         Month = factor(
             month(dt_posix, label = TRUE, abbr = TRUE),
             levels = month.abb
@@ -65,14 +68,11 @@ trainDf_withna <- consoDf %>%
     ) %>%
     dplyr::arrange(dt_posix)
 
-##==================================================
-# make Test Df
-##==================================================
-
 prevDf_withna <- meteo_prev  %>%
     dplyr::select(-date_time_utc, -neige) %>%
     dplyr::filter(dt_posix <= as.POSIXct("2016-09-20 23:00:00")) %>%
     dplyr::mutate(
+        Weekday = wday(dt_posix, label = TRUE, abbr = FALSE),
         Hour = hour(dt_posix),
         Month = factor(
             month(dt_posix, label = TRUE, abbr = TRUE),
@@ -81,11 +81,14 @@ prevDf_withna <- meteo_prev  %>%
     ) %>%
     dplyr::arrange(dt_posix)
 
+
 ##==================================================
-# Center and Scale + replace NA
+# make Test Df
 ##==================================================
 
 x_vars <- c(
+    "Month",
+    "Weekday",
     "temp",
     "pression",
     "hr",
@@ -98,85 +101,9 @@ x_vars <- c(
     "nebul"
 )
 
-## les valeurs des variables x sont reparties dans une seule colonne "value"
-train_gth <- trainDf_withna %>%
-    tidyr::gather_("variable", "value", x_vars)
-
-## Maintenant, pour chaque couple ([temps], variable, value), on peut obtenir la moy et le std
-## ici, temps correspond à chaque heure de chaque 15zaine du mois. 
-train_summa <- train_gth %>%
-    dplyr::group_by(variable, Month, Hour) %>%
-    dplyr::summarise(
-        nb_na = count_na(value),
-        Mean = mean(value, na.rm = TRUE),
-        Std = sd(value, na.rm = TRUE)
-    ) %>%
-    dplyr::mutate(
-        Std = replace(Std, is.nan(Std), 1),
-        Std = replace(Std, Std == 0, 1)
-    )
-
-## Maintenant, on peut centrer, reduire
-## Center and Scale X
-trainDf <- dplyr::left_join(
-    train_gth,
-    train_summa,
-    by = c("variable", "Month", "Hour")
-) %>%
-    dplyr::mutate(
-        variable = factor(variable, unique(train_gth$variable)),
-        value = ifelse(
-            ## On remplace les valeurs manquantes par 0, et on centre et réduit les autres
-            !is.na(value),
-            ifelse(!is.na(Mean), (value - Mean) / Std, value),
-            0
-        ),
-        nb_na = NULL,
-        Mean = NULL,
-        Std = NULL
-    ) %>%
-    dplyr::arrange(variable, dt_posix) %>%
-    tidyr::spread(variable, value)
+list[trainDf, prevDf, x_vars] <- make_train_test_data(trainDf_withna, prevDf_withna, x_vars)
 
 
-
-prevDf <- prevDf_withna %>%
-    tidyr::gather_("variable", "value", x_vars) %>%
-    dplyr::left_join(
-        train_summa,
-        by = c("variable", "Month", "Hour")
-    ) %>%
-    dplyr::mutate(
-        variable = factor(variable, unique(train_gth$variable)),
-        value = ifelse(
-            !is.na(value),
-            ifelse(!is.na(Mean), (value - Mean) / Std, value),
-            0
-        ),
-        nb_na = NULL,
-        Mean = NULL,
-        Std = NULL
-    ) %>%
-    dplyr::arrange(variable, dt_posix) %>%
-    tidyr::spread(variable, value)
-
-## Verif
-x_verif <- trainDf %>%
-    tidyr::gather_("variable", "value", x_vars) %>%
-    dplyr::group_by(Month, Hour) %>%
-    dplyr::summarise(
-        Mean = mean(value),
-        Std = sd(value)
-    )
-
-## Verif
-y_verif <- prevDf %>%
-    tidyr::gather_("variable", "value", x_vars) %>%
-    dplyr::group_by(Month, Hour) %>%
-    dplyr::summarise(
-        Mean = mean(value),
-        Std = sd(value)
-    )
 
 ##==================================================
 # Center and Scale + replace NA
