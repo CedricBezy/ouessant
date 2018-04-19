@@ -25,14 +25,13 @@ completePath <- function(path, ...){
     return(complete_path)
 }
 
-
 ##==================================================
 # make Train and Test Df
 ##==================================================
 load(completePath('data/train_prev.RData'))
 source(completePath('%s/code/utils.R'))
-source(completePath('%s/code/scenario_1.R'))
-source(completePath('%s/code/makeTrainTest_variable.R'))
+source(completePath('%s/code/scenario_3.R'))
+source(completePath('%s/code/makeTrainTest_month_hour_badScale.R'))
 
 list[trainDf, prevDf, x_vars] <- make_train_test_data(data_train, data_prev, x_vars)
 
@@ -45,9 +44,10 @@ Ytrain <- trainDf[c('P0', 'DP1', 'DP2')]
 Xtrain <- trainDf[c('Hour', x_vars)]
 Xprev <- prevDf[c('Hour', x_vars)]
 
+
 params <- list(
     booster = "gbtree",
-    nrounds = 400,
+    nrounds = 300,
     eta = 0.1,
     max_depth = 15,
     min_child_weight = 0
