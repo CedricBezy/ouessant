@@ -15,6 +15,7 @@ library(tidyr)
 library(lubridate)
 library(magrittr)
 library(xgboost)
+library(gsubfn)
 
 # Set Option : Date in English
 Sys.setlocale("LC_TIME", "English_United States")
@@ -47,7 +48,7 @@ Xprev <- prevDf[c('Hour', x_vars)]
 
 params <- list(
     booster = "gbtree",
-    nrounds = 300,
+    nrounds = 400,
     eta = 0.1,
     max_depth = 15,
     min_child_weight = 0
