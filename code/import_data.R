@@ -95,16 +95,48 @@ colnames(meteo_train) <- newnames
 ## delete doublons
 meteo_train <- meteo_train[-which(duplicated(meteo_train)),]
 
-dt_train <- strptime(
+dt_train <- as.POSIXct(strptime(
     meteo_train$date_time_utc,
     format = "%d/%m/%y %Hh%M"
-)
+))
+
 meteo_train <- meteo_train %>%
     tibble::add_column(
-        dt_posix = as.POSIXct(dt_train),
+        dt_posix = dt_train,
+        Weekday = wday(dt_train, label = TRUE, abbr = FALSE),
+        Day = day(dt_train),
+        Month = month(dt_train, label = TRUE, abbr = FALSE),
+        Year = year(dt_train),
+        Hour = hour(dt_train),
+        f_weekend = as.numeric(
+            Weekday %in% c("Saturday", "Sunday")
+        ),
+        f_evening = as.numeric(
+            ifelse(
+                Month %in% month.abb[4:10],
+                Hour >= 21 | Hour == 0,
+                Hour >= 18 | Hour == 0
+            )
+        ),
         .after = "date_time_utc"
     ) %>%
     dplyr::select(-date_time_utc)
+
+meteo_train <- meteo_train %>%
+    dplyr::mutate(
+        rose_vt = cut(
+            replace(vt_dir, vt_dir >= 315, 0),
+            breaks = c(0, seq(45, 315, 90)),
+            labels = c("North", "East", "South", "West"),
+            right = FALSE
+        ),
+        vt_north = as.numeric(is.na(vt_dir) & (vt_dir < 67.5 | vt_dir > 292.5)),
+        vt_east = as.numeric(is.na(vt_dir) & between(vt_dir, 22.5, 157.5)),
+        vt_south = as.numeric(is.na(vt_dir) & between(vt_dir, 112.5, 247.5)),
+        vt_west = as.numeric(is.na(vt_dir) & between(vt_dir, 202.5, 337.5))
+    )
+
+summary(meteo_train)
 
 ##--------------------------------
 # meteo prev
@@ -115,24 +147,56 @@ meteo_prev <- read.csv2(
 )
 colnames(meteo_prev) <- newnames
 
-dt_prev <- strptime(
+dt_prev <- as.POSIXct(strptime(
     meteo_prev$date_time_utc,
     format = "%d/%m/%y %Hh%M"
-)
+))
+
 meteo_prev <- meteo_prev %>%
     tibble::add_column(
-        dt_posix = as.POSIXct(dt_prev),
+        dt_posix = dt_prev,
+        Weekday = wday(dt_prev, label = TRUE, abbr = FALSE),
+        Day = day(dt_prev),
+        Month = month(dt_prev, label = TRUE, abbr = FALSE),
+        Year = year(dt_prev),
+        Hour = hour(dt_prev),
+        f_weekend = as.numeric(
+            Weekday %in% c("Saturday", "Sunday")
+        ),
+        f_evening = as.numeric(
+            ifelse(
+                Month %in% month.abb[4:10],
+                Hour >= 21 | Hour == 0,
+                Hour >= 18 | Hour == 0
+            )
+        ),
         .after = "date_time_utc"
     ) %>%
     dplyr::select(-date_time_utc)
 
-##--------------------------------
+meteo_prev <- meteo_prev %>%
+    dplyr::mutate(
+        rose_vt = cut(
+            replace(vt_dir, vt_dir >= 315, 0),
+            breaks = c(0, seq(45, 315, 90)),
+            labels = c("North", "East", "South", "West"),
+            right = FALSE
+        ),
+        vt_north = as.numeric(is.na(vt_dir) & (vt_dir < 67.5 | vt_dir > 292.5)),
+        vt_east = as.numeric(is.na(vt_dir) & between(vt_dir, 22.5, 157.5)),
+        vt_south = as.numeric(is.na(vt_dir) & between(vt_dir, 112.5, 247.5)),
+        vt_west = as.numeric(is.na(vt_dir) & between(vt_dir, 202.5, 337.5))
+    )
+
+##========================================================
 # save
-##--------------------------------
+##========================================================
+
 save(
     conso_train, meteo_train, meteo_prev,
     file = completePath("%s/data/cleaned_data.RData")
 )
+
 ##========================================================
 # creation des tables train and prev
 ##========================================================
@@ -157,7 +221,8 @@ consoDf <- conso_train %>%
     tidyr::spread(vpuiss, puissance) %>%
     dplyr::mutate(
         DP1 = P1 - P0,
-        DP2 = P2 - P0
+        DP2 = P2 - P0,
+        DP12 = P2 - P1
     ) %>%
     dplyr::select(-P1, -P2)
 
@@ -165,28 +230,11 @@ consoDf <- conso_train %>%
 # meteoDf : meteo without useless data
 data_train <- consoDf %>%
     dplyr::right_join(meteo_train, by = c("dt_posix")) %>%
-    dplyr::filter(!is.na(P0), !is.na(DP1), !is.na(DP2)) %>%
-    dplyr::mutate(
-        Weekday = wday(dt_posix, label = TRUE, abbr = FALSE),
-        Month = factor(
-            month(dt_posix, label = TRUE, abbr = TRUE),
-            levels = month.abb
-        ),
-        Hour = hour(dt_posix)
-    ) %>%
-    dplyr::arrange(dt_posix)
-
+    dplyr::arrange(dt_posix) %>%
+    dplyr::filter(!is.na(P0), !is.na(DP1), !is.na(DP2), !is.na(DP12))
 
 data_prev <- meteo_prev %>%
     dplyr::filter(dt_posix <= as.POSIXct("2016-09-20 23:00:00")) %>%
-    dplyr::mutate(
-        Weekday = wday(dt_posix, label = TRUE, abbr = FALSE),
-        Hour = hour(dt_posix),
-        Month = factor(
-            month(dt_posix, label = TRUE, abbr = TRUE),
-            levels = month.abb
-        )
-    ) %>%
     dplyr::arrange(dt_posix)
 
 ##--------------------------------
