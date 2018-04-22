@@ -23,6 +23,20 @@ Dans ce cadre, nous avons choisi de participer au _"Data Challenge"_ organisé p
 
 Pour répondre aux attentes de ce projet, nous avons utilisé le logiciel R. Ce notebook décrit notre démarche ainsi que le code utilisé pendant ce projet.
 
+# Résumé
+
+Notre démarche générale est la suivante :
+
+1. Import des packages / données
+2. Nettoyage des données
+3. Création de nouvelles variables à partir des données
+4. Statistique Descriptive
+5. Modélisation et Prédiction
+
+Les points 3, 4 et 5 sont itératifs, afin d'améliorer la prédiction. 
+
+Pour la prédiction, nous avons utilisé notamment *randomForest* et *xgboost*. La meilleure prédiction à été trouvée grâce à **xgboost**.
+
 # Mise en place de l'environnement
 
 Avant de démarrer l'explication de la démarche, il est utile que le lecteur dispose du même environnement (chemin, packages, ...)
@@ -186,7 +200,7 @@ plot_na <- function(
 }
 ```
 
-### Fonction pour diviser une table de données en 2.
+### Fonction pour diviser une table de données en deux échantillons.
 
 ```{r}
 # La fonction permet de spliter une data.frame en 2 echantillon selon une proportion ptrain entre 0 et 1.
@@ -545,15 +559,78 @@ En outre, nous avons établis d'autres facteurs:
 
 Nous avons à présent nos données.
 
-
-
-
-
-
 # Statistique Descriptive
 
-Avant tout, il est recommandé de faire des statistiques descriptives
+Avant tout, il est recommandé de faire des statistiques descriptives.
 
+
+
+
+
+
+# Mise en place du modèle
+
+### Comment prédire une maille horaire en ayant des données météo en maille tri-horaire ?
+
+Nous avons divisé la pression en 3 vecteurs :
+
+* P0 contient la consommation aux heures H, ayant la météo donnée.
+* P1 contient la consommation aux heures H + 1.
+* P2 contient la consommation aux heures H + 2
+
+Nous avons calculé 2 autres vecteurs :
+* DP1 = P1 - P0 (écart entre les vecteurs P0 et P1)
+* DP2 = P2 - P0 (écart entre les vecteurs P0 et P2)
+
+Nous effectuerons 3 prédictions, sur les vecteurs P0, DP1 et DP2.
+
+
+### Comment gérer le changement d'heure ?
+
+Les données sont effectivement impactées par le changement d'heure, les derniers dimanches des mois d'octobre et mars.
+
+En octobre, on recule d'une heure, mais dans les données, il n'y a pas deux lignes à 2h du matin. Avec les données à disposition, ce n'est donc pas un problème.
+
+En mars, on avance d'une heure. Il y a donc une valeur de moins, puisqu'il n'y a pas de ligne à 2h du matin. Par conséquent, le modèle H+2 aura donc une ligne de moins.
+
+```{r}
+# consoDf : contains consommation :
+#   - puissance P0 for each 3 hours.
+#   - puissance variation for each 3 hours + 1 (DP1 = P1 - P0)
+#   - puissance variation for each 3 hours + 2 (DP1 = P1 - P0)
+
+consoDf <- conso_train %>%
+    dplyr::select(datetime, puissance) %>%
+    ## on détermine les heures H, H+1 et H+2
+    dplyr::mutate(
+        R3 = hour(datetime) %% 3,
+        vpuiss = factor(R3, levels = 0:2, labels = paste0("P", 0:2)),
+        datetime = datetime - 3600 * R3,
+        R3 = NULL
+    ) %>%
+    ## on distribue les puissances en 3 colonnes P0, P1 et P2
+    tidyr::spread(vpuiss, puissance) %>%
+    dplyr::filter(!is.na(P0)) %>%
+    dplyr::mutate(
+        DP1 = P1 - P0,
+        DP2 = P2 - P0
+    )
+
+str(consoDf)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+La meilleure prédiction a été obtenue grâce à xgboost.
 
 
 
