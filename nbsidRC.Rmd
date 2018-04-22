@@ -1,0 +1,419 @@
+---
+title: "Challenge: Prédiction de la consommation électrique sur l'ile d'Ouessant"
+author: Cedric Bezy, Riwan Mouster (SIdRC)
+output: 
+    html_notebook:
+        toc: true
+        depth: 4
+        #theme: united
+---
+
+\tableofcontents
+
+# Présentation et contexte
+Nous sommes étudiants en Master _Statistique et Informatique Décisionnelle_ à Toulouse. Afin d'améliorer nos compétences en Machine Learning, nous participons de temps en temps à des compétitions de type _Kaggle_, ou autres.
+
+Dans ce cadre, nous avons choisi de participer au _"Data Challenge"_ organisé par le "groupe des Jeunes Statisticien.ne.s". Ce projet consiste à prévoir la consommation électrique de l’île d'Ouessant pendant 8 jours, à chaque heure. Pour cela, nous disposons des fichiers suivants :
+
+* **conso_train**: un an de données de consommation historiques, à la maille horaire
+* **meteo_train**: un an de données météorologiques à la maille tri-horaire, issues de la proche station météorologique de Brest
+* **meteo_pred**: une semaine de données météorologiques à la maille tri-horaire, issues de la même station et faisant office de prédiction météorologique. Dans ce projet, on considèrera ces prédictions comme étant exactes.
+* **sample_submission**: l'exemple de fichier-type pour la soumission, à la maille horaire sur les 8 jours de prédiction.
+
+Pour répondre aux attentes de ce projet, nous avons utilisé le logiciel R. Ce notebook décrit notre démarche ainsi que le code utilisé pendant ce projet.
+
+# Mise en place de l'environnement
+
+Avant de démarrer l'explication de la démarche, il est utile que le lecteur dispose du même environnement (chemin, packages, ...)
+
+### Langue de l'environnement
+
+Nous avons fais le choix de travailler dans un enviromment local anglais (notamment pour les dates).
+
+```{r, echo=TRUE, include=TRUE, message=FALSE}
+# Set Option : Date in English
+Sys.setlocale("LC_TIME", "English_United States")
+```
+
+### Installation des packages
+
+Ces lignes de code permettent d'installer les packages nécessaires.
+
+```{r, echo=TRUE, include=TRUE, message=FALSE}
+# install.packages(c("dplyr", "tidyr", "ggplot2"))
+# install.packages(c("circular", "lubridate", "magrittr"))
+# install.packages(c("xgboost", "FactoMineR", "gsubfn"))
+```
+
+### Importation des packages
+
+Maintenant que les packages sont installés, importons-les dans l'environnement.
+
+```{r, message=FALSE}
+## Gestion DataFrames
+library(dplyr)
+library(tidyr)
+
+## Gestion des types particuliers (angle et dates)
+library(circular)
+library(lubridate)
+library(magrittr)
+
+## Table disjonctive
+library(FactoMineR)
+
+## XGboost
+library(xgboost)
+
+## Simplification des résultats de fonctions en listes
+library(gsubfn)
+
+```
+
+
+# Fonctions
+
+Les fonctions suivantes ont été programmées et utilisées pendant le projet.
+
+### Fonctions de mesure d'écart entre deux vecteurs
+
+Dans ce projet, nos résultats seront évalués selon les critères _"Mean Absolute Percentage Error"_ (**MAPE**), et _"Root Mean Square Error"_ (**RMSE**). Il existe certes des packages donnant ces fonctions, mais les programmer par nous même nous permettra de mieux comprendre ces critères - en plus d'éviter à avoir à charger d'autres packages.
+
+```{r}
+## Fonction mape
+MAPE <- function(y_pred, y_true){
+    mape <- mean(abs((y_true - y_pred)/y_true))
+    return(mape)
+}
+## Fonction RMSE
+RMSE <- function(x, y){
+    rmse <- sqrt(mean((x - y) ^ 2))
+    return(rmse)
+}
+```
+
+### Fonctions Descriptives: Voir les données manquantes par variable
+
+```{r}
+# count_na compte le nombre de valeurs manquantes dans un vecteur x
+count_na <- function(x){
+    sum(is.na(x))
+}
+
+# prop_na donne la proportion de valeurs manquantes dans un vecteur x
+prop_na <- function(x){
+    mean(is.na(x))
+}
+
+#------------------------
+# plotting missing values
+#------------------------
+# plot_na renvoie le diagramme en barre donnant la proportion de valeurs
+#   manquantes (NA) dans chaque colonne d'une data.frame.
+# En entrée:
+#   "df": data.frame à évaluer
+#   pareto: logical
+#       si TRUE, les barres sont ordonnées par ordre décroissant
+#       si FALSE, alors les barres sont rangées par ordre alphabetique
+#   simplify: logical
+#       si TRUE, les colonnes sans valeurs manquantes ne sont pas affichés,
+#           seules restent les variables avec valeurs manquantes
+#       si FALSE, toutes les variables sont affichées
+#   legend:  logical ; = TRUE si la legende doit etre affichee, =FALSE sinon
+#   maintitle : titre du graphique (voir "label" de l fonction ggtitle)
+#   subtitle : soustitre du graphique (voir la fonction ggtitle)
+# En sortie :
+#   un graphique de type ggplot
+
+plot_na <- function(
+    df,
+    pareto = TRUE,
+    simplify = TRUE,
+    legend = FALSE,
+    maintitle = "Missing Values",
+    subtitle = NULL
+){
+    ## data : proportion of na
+    dfna <- data.frame(
+        variable = colnames(df),
+        count_na = sapply(df, count_na),
+        prop_na = sapply(df, prop_na)
+    )
+    if(simplify){
+        dfna <- dfna %>% dplyr::filter(nb_na >= 1)
+    }
+    if(pareto){
+        dfna <- dfna %>% dplyr::arrange(desc(p_na), variable)
+        dfna$variable <- factor(dfna$variable, unique(dfna$variable))
+    }
+    
+    ## Plot Layers
+    resbarplot <- ggplot(data = dfna) +
+        geom_bar(
+            mapping = aes(variable, prop_na, fill = prop_na),
+            stat = "identity",
+            col = "black"
+        )
+    resbarplot <- resbarplot +
+        ## modify x axis
+        scale_x_discrete(
+            name = NULL
+        ) +
+        # modify y axis
+        scale_y_continuous(
+            name = "Prop NA",
+            breaks = seq(0, 1, 0.1),
+            limits = c(0, 1)
+        ) +
+        ## Modify colors
+        scale_fill_continuous(
+            name = "Prop NA",
+            high = "#333333",
+            low = "#CCCCCC"
+        )
+        ## set title abnd theme
+    resbarplot <- resbarplot +
+        ggtitle(maintitle, subtitle) +
+        theme_bw()
+    
+    ## delete legend
+    if(!legend){
+        resbarplot <- resbarplot + guides(fill = FALSE)
+    }
+    ## results
+    return(resbarplot)
+}
+```
+
+### Fonction pour spliter une table de données en 2.
+
+```{r}
+# La fonction permet de spliter une data.frame en 2 echantillon selon une proportion ptrain entre 0 et 1.
+# L'échantillon train contient une proportion ptrain de lignes
+# l'échantillon test contient une proportion (1-ptrain) de lignes
+# En sortie : une liste de deux data.frames "train"" et "test""
+
+train_test_split <- function(data, ptrain = 0.75)
+{
+    N <- nrow(data)
+    n <- floor(ptrain * N)
+    s <- sample.int(N, n, replace = FALSE)
+    reslist <- list(
+        train = data[s,],
+        test = data[-s,]
+    )
+    return(reslist)
+}
+```
+
+### Fonction pour traiter les variables numériques
+
+Comment doivent être traitées les variables numériques ? En général, les valeurs manquantes sont remplacées par la moyenne de la variable dans l'échantillon d'apprentissage (train). Enfin, les variables peuvent être centrées et / ou réduites. Nous avons créé une fonction qui permettait de le faire, par niveau ou non.
+
+Dans l'échantillon test, le remplacement des variables se fait sur le modèle de la table d'apprentissage (valeur de la moyenne et de l'écart-type).
+
+Par niveau, cela signifie que la table est divisée en plusieurs morceaux selon des facteurs, le remplacement des valeurs manquantes et centrer / réduire se fait dans chaque morceau indépendamment des autres.
+
+```{r}
+
+```
+
+### Fonction pour transformer des facteurs en variables indicatrices
+
+
+
+```{r}
+
+```
+
+
+
+# Gestion des Données
+
+Maintenant que l'environnement de travail a été initialisé, nous pouvons nous occuper des données
+
+### Chemin d'accès aux données
+
+_path\_file_ contient une chaine donnant le dossier de localisation des fichiers de données.
+
+```{r}
+## A modifier
+path_files <- "ouessant_copy/data" 
+```
+
+### Importation des données
+
+```{r}
+# Importation de conso_train
+conso_train <- read.csv2(
+    file = sprintf("%s/conso_train.csv", path_files),
+    dec = ".",
+    stringsAsFactors = FALSE
+)
+
+## Importation de meteo_train
+meteo_train <- read.csv2(
+    file = sprintf("%s/meteo_train.csv", path_files),
+    dec = ".",
+    stringsAsFactors = FALSE
+)
+
+## Importation de meteo_prev
+meteo_prev <- read.csv2(
+    file = sprintf("%s/meteo_prev.csv", path_files),
+    dec = ".",
+    stringsAsFactors = FALSE
+)
+```
+
+Un problème rencontré au cours de l'import est que R ne reconnait pas l'encodage des noms de colonnes. Aussi avons-nous renommé les colonnes afin de faciliter l'utilisation des méthodes de machine learning.
+
+```{r}
+colnames(conso_train)
+colnames(meteo_train)
+```
+
+```{r}
+## rename conso_train
+colnames(conso_train) <- c('datetime', 'puissance')
+
+## rename meteo_train
+newnames <- c(
+    "datetime", "temp", "pression", "hr", "p_rosee",
+    "visi", "vt_moy", "vt_raf", "vt_dir", "rr_3h",
+    "neige", "nebul"
+)
+colnames(meteo_train) <- newnames
+colnames(meteo_prev) <- newnames
+```
+
+### Description des données
+
+Les données météo sont décrites comme suit :
+
+* **datetime**: dates des observations (sera convertie en Date)
+* **temp** : température (°C)
+* **pression** : pression (hPa)
+* **hr** : hmidité relative (%), mesure la quantité de vapeur d'eau présente dans l'air
+* **p_rosee** : point de rosée (°C)
+* **visi** : visibilité (km)
+* **vt_moy** : vitesse moyen du vent (km/h)
+* **vt_raf** : vitesse des rafales de vent (km/h)
+* **vt_dir** : direction du vent (degrés, de 0 à 359)
+* **rr_3h** : précipitations sur 3h (mm)
+* **neige** : neige (cm)
+* **nebul** : nébulosité, ou couverture nuageuse (octats)
+
+```{r}
+summary(conso_train)
+summary(meteo_train)
+summary(meteo_prev)
+```
+
+### Nettoyage des données : suppression des doublons
+
+L'étape suivante de la gestion des données consiste à nettoyer les données avant tout. C'est-à-dire de supprimer les lignes présentes plusieurs fois, et convertir les colonnes au bon format. "Le nettoyage des données est la base d'une bonne prédiction."
+
+```{r}
+## supprimer les doublons dans conso_train
+dup_conso <- which(duplicated(conso_train))
+conso_train <- conso_train[-dup_conso,]
+print(sprintf("conso_train : %i lignes supprimées !", length(dup_conso)))
+
+## supprimer les doublons dans meteo_train
+dup_meteo <- which(duplicated(meteo_train))
+meteo_train <- meteo_train[-dup_meteo,]
+print(sprintf("meteo_train : %i lignes supprimées !", length(dup_meteo)))
+```
+
+### Formattage des variables
+
+Dans la table _conso\_train_, la date doit être formatée, afin d'être convertie en date - sous R, il s'agit du type _"POSIXt"_. Nous conserverons également le fuseau horaire.
+
+De plus, certaines puissances sont données aux temps hh:59:59 à chaque heure. Considérant la seconde négligeable dans notre échelle de travail, et pour le besoin de l'étude, nous avons décidé d'arrondir ces dates à l'heure (soit une seconde plus tard).
+
+```{r}
+## extraire la date
+conso_dt <- strsplit(conso_train$datetime, split = "\\+")
+
+## Extraire la date
+conso_dt_format <- as.POSIXct(strptime(
+    sapply(conso_dt, function(x){x[1]}),
+    format = "%Y-%m-%dT%H:%M:%S"
+))
+
+## Enfin, on arrondit la date
+conso_train$datetime <- round_date(conso_dt_format, "hour")
+## fuseau horaire
+conso_train$fuseau <- paste0("+", sapply(conso_dt, function(x){x[2]}))
+```
+
+Dans les tables _meteo\_train_ et _meteo\_prev_, nous devons également gérer les dates, mais pas seulement. En effet, la variable _vt\_dir_ est une variable circulaire : un vent de direction 350 et 10 degrés sont proches, et pourtant le vent moyen donnerait un vent en direction contraire (180 degrés).
+
+```{r}
+## dans meteo train
+dt_meteotrain <- as.POSIXct(strptime(
+    meteo_train$datetime,
+    format = "%d/%m/%y %Hh%M"
+))
+meteo_train <- meteo_train %>%
+    dplyr::mutate(
+        datetime = dt_meteotrain,
+        vt_dir = circular(vt_dir, type = "direction", units = "degrees", zero = 0)
+    )
+
+## dans meteo pred
+dt_meteoprev <- as.POSIXct(strptime(
+    meteo_prev$datetime,
+    format = "%d/%m/%y %Hh%M"
+))
+meteo_prev <- meteo_prev  %>%
+    dplyr::mutate(
+        datetime = dt_meteoprev,
+        vt_dir = circular(vt_dir, type = "direction", units = "degrees", zero = 0)
+    )
+
+```
+
+### Création de variables
+
+A partir des données, nous avons créé d'autres variables explicatives, dont certaines dérivées de la dates.
+
+* **Weekday** : jour de la semaine ("Monday", ..., "Sunday")
+* **Day**: jour dans le mois
+* **Month**: mois de l'année ("January", ..., "December")
+* **Year**: année
+* **Hour**: heure dans la journée
+
+En outre, nous avons établis d'autres facteurs:
+
+* **rose_vt**: faire une moyenne sur la direction du vent n'a concrètement aucun sens. Nous avons donc décidé de découper cette variable en plusieurs classes, selon la rose de direction :
+    + *North*: vent venant du nord (315 degrés ou +, ou en dessous de 45 degrés).
+    + *East*: vent venant de l'est (entre 45 et 134.9 degrés)
+    + *South*: vent venant du Sud (entre 135 et 224.9 degrés)
+    + *West*: vent venant de l'Ouest (entre 255 et 314.9 degrés)
+    
+* **f_weekend**: =1 si Weekday = "Saturday" ou "Sunday", =0 sinon.
+* **f_season**: ="summer" entre les mois d'Avril à Octobre, et "winter" entre les mois de Novembre à Mars
+* **f_evening**: Cette variable permet de mettre l'accent sur les pics de fin de journée, en général lorsque les individus consomment le plus d'électricité:
+    + en été ("summer"), =1 au dessus de 21h, =0 sinon.
+    + en hiver ("winter"), =1 au dessus de 18h, =0 sinon
+
+Nous avons à présent nos données.
+
+
+
+
+
+
+# Statistique Descriptive
+
+Avant tout, il est recommandé de faire des statistique descriptives
+
+
+
+
+
+
+
+
