@@ -14,13 +14,14 @@ library(dplyr)
 library(tidyr)
 library(lubridate)
 library(magrittr)
+library(circular)
 
 # Set Option : Date in English
 Sys.setlocale("LC_TIME", "English_United States")
 
 completePath <- function(path, ...){
     path_proj <- "D:/Documents/PROJETS/Kaggle/ouessant/ouessant_copy"
-    complete_path <- sprintf(path, path_proj)
+    complete_path <- sprintf(path, path_proj, ...)
     return(complete_path)
 }
 
@@ -108,22 +109,18 @@ meteo_train <- meteo_train %>%
         Month = month(dt_train, label = TRUE, abbr = FALSE),
         Year = year(dt_train),
         Hour = hour(dt_train),
-        f_weekend = as.numeric(
-            Weekday %in% c("Saturday", "Sunday")
-        ),
-        f_evening = as.numeric(
-            ifelse(
-                Month %in% month.abb[4:10],
-                Hour >= 21 | Hour == 0,
-                Hour >= 18 | Hour == 0
-            )
-        ),
         .after = "date_time_utc"
     ) %>%
     dplyr::select(-date_time_utc)
 
 meteo_train <- meteo_train %>%
     dplyr::mutate(
+        f_weekend = as.numeric(
+            Weekday %in% c("Saturday", "Sunday")
+        ),
+        f_evening = as.numeric(
+            ifelse(month(dt_posix) %in% c(4:10), Hour >= 21, Hour >= 18)
+        ),
         rose_vt = cut(
             replace(vt_dir, vt_dir >= 315, 0),
             breaks = c(0, seq(45, 315, 90)),
@@ -133,7 +130,8 @@ meteo_train <- meteo_train %>%
         vt_north = as.numeric(is.na(vt_dir) & (vt_dir < 67.5 | vt_dir > 292.5)),
         vt_east = as.numeric(is.na(vt_dir) & between(vt_dir, 22.5, 157.5)),
         vt_south = as.numeric(is.na(vt_dir) & between(vt_dir, 112.5, 247.5)),
-        vt_west = as.numeric(is.na(vt_dir) & between(vt_dir, 202.5, 337.5))
+        vt_west = as.numeric(is.na(vt_dir) & between(vt_dir, 202.5, 337.5)),
+        vt_dir = circular(vt_dir, units = "degrees", zero = 0)
     )
 
 summary(meteo_train)
@@ -160,22 +158,18 @@ meteo_prev <- meteo_prev %>%
         Month = month(dt_prev, label = TRUE, abbr = FALSE),
         Year = year(dt_prev),
         Hour = hour(dt_prev),
-        f_weekend = as.numeric(
-            Weekday %in% c("Saturday", "Sunday")
-        ),
-        f_evening = as.numeric(
-            ifelse(
-                Month %in% month.abb[4:10],
-                Hour >= 21 | Hour == 0,
-                Hour >= 18 | Hour == 0
-            )
-        ),
         .after = "date_time_utc"
     ) %>%
     dplyr::select(-date_time_utc)
 
 meteo_prev <- meteo_prev %>%
     dplyr::mutate(
+        f_weekend = as.numeric(
+            Weekday %in% c("Saturday", "Sunday")
+        ),
+        f_evening = as.numeric(
+            ifelse(month(dt_posix) %in% c(4:10), Hour >= 21, Hour >= 18)
+        ),
         rose_vt = cut(
             replace(vt_dir, vt_dir >= 315, 0),
             breaks = c(0, seq(45, 315, 90)),
@@ -185,7 +179,8 @@ meteo_prev <- meteo_prev %>%
         vt_north = as.numeric(is.na(vt_dir) & (vt_dir < 67.5 | vt_dir > 292.5)),
         vt_east = as.numeric(is.na(vt_dir) & between(vt_dir, 22.5, 157.5)),
         vt_south = as.numeric(is.na(vt_dir) & between(vt_dir, 112.5, 247.5)),
-        vt_west = as.numeric(is.na(vt_dir) & between(vt_dir, 202.5, 337.5))
+        vt_west = as.numeric(is.na(vt_dir) & between(vt_dir, 202.5, 337.5)),
+        vt_dir = circular(vt_dir, units = "degrees", zero = 0)
     )
 
 ##========================================================
