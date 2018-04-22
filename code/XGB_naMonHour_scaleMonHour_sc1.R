@@ -32,8 +32,8 @@ completePath <- function(path, ...){
 ##==================================================
 # make Train and Test Df
 ##==================================================
-load(completePath('data/cleaned_data.RData'))
-load(completePath('data/train_prev.RData'))
+load(completePath('%s/data/cleaned_data.RData'))
+load(completePath('%s/data/train_prev.RData'))
 source(completePath('%s/code/utils.R'))
 source(completePath('%s/code/scenarios.R'))
 
@@ -74,11 +74,12 @@ Xprev <- prevDf[columns]
 
 puiss_prev <- xgboost_predict(
     Ytrain, Xtrain, Xprev,
-    nrounds = 1000,
+    nrounds = 300,
     objective = "reg:linear",
     eta = 0.01,
+    subsample = 1,
     max_depth = 15,
-    min_child_weight = 1,
+    min_child_weight = 3,
     booster = "gbtree",
     normalize_type = 'forest'
 )
@@ -122,3 +123,10 @@ write.csv2(
     row.names = FALSE,
     na = ""
 )
+
+resplot <- plot_submits(submitDf, numsc, mape)
+print(resplot)
+png(completePath("%s/outputs/%s_%s_%.3f.png", nows, filename, mape),
+    width = 600, height = 500)
+print(resplot)
+dev.off()

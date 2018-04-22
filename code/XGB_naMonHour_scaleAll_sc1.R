@@ -8,6 +8,8 @@ rm(list = ls())
 ##=======================================
 # needed packages
 ##=======================================
+# Set Option : Date in English
+Sys.setlocale("LC_TIME", "English_United States")
 
 # data.frames
 library(dplyr)
@@ -16,13 +18,15 @@ library(lubridate)
 library(magrittr)
 library(xgboost)
 library(gsubfn)
+library(scriptName)
 
-# Set Option : Date in English
-Sys.setlocale("LC_TIME", "English_United States")
+nows <- format(Sys.time(), "%Y%m%d_%H%M")
+script <- scriptName::current_filename()
+filename <- rev(strsplit(script, "/|\\.")[[1]])[2]
 
 completePath <- function(path, ...){
     path_proj <- "D:/Documents/PROJETS/Kaggle/ouessant/ouessant_copy"
-    complete_path <- sprintf(path, path_proj)
+    complete_path <- sprintf(path, path_proj, ...)
     return(complete_path)
 }
 
@@ -80,7 +84,7 @@ Xprev <- prevDf[columns]
 
 puiss_prev <- xgboost_predict(
     Ytrain, Xtrain, Xprev,
-    nrounds = 1000,
+    nrounds = 2000,
     objective = "reg:linear",
     eta = 0.1,
     max_depth = 15,
@@ -113,7 +117,11 @@ submitDf <- puiss_prev %>%
     tibble::add_column(
         reality = reality$V1,
         .after = "puissance"
-    )
+    ) %>%
+    dplyr::mutate(
+        mape = abs(puissance - reality) / abs(reality) * 100
+    ) %>%
+    dplyr::left_join(data_prev[c("dt_posix", unlist(scenario))], by = "dt_posix")
 
 ## Evaluation
 rmse <- RMSE(submitDf$puissance, submitDf$reality)
@@ -121,5 +129,11 @@ mape <- MAPE(submitDf$puissance, submitDf$reality) * 100
 
 print(sprintf("Scenario %i: mape = %f", numsc, mape))
 
+write.csv2(
+    submitDf,
+    completePath("%s/submits/%s_%s_%.3f.csv", nows, filename, mape),
+    row.names = FALSE,
+    na = ""
+)
 
 

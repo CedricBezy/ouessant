@@ -74,11 +74,12 @@ Xprev <- prevDf[columns]
 
 puiss_prev <- xgboost_predict(
     Ytrain, Xtrain, Xprev,
-    nrounds = 3000,
+    nrounds = 300,
     objective = "reg:linear",
     eta = 0.01,
     max_depth = 15,
-    min_child_weight = 2,
+    min_child_weight = 3,
+    subsample = 1,
     booster = "gbtree",
     normalize_type = 'forest'
 )
@@ -125,3 +126,11 @@ write.csv2(
     row.names = FALSE,
     na = ""
 )
+
+resplot <- plot_submits(submitDf, numsc, mape)
+print(resplot)
+png(completePath("%s/outputs/%s_%s_%.3f.png", nows, filename, mape),
+    width = 600, height = 500)
+print(resplot)
+dev.off()
+

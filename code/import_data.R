@@ -28,47 +28,39 @@ completePath <- function(path, ...){
 ##=====================================================
 # Importation et Nettoyage des Donnees
 ##=====================================================
-##--------------------------------
-# CONSO TRAIN
-##--------------------------------
+
+
+path_files <- completePath("data")
+
+# Importation de conso_train
 conso_train <- read.csv2(
-    file = completePath("%s/data/conso_train.csv"),
+    file = sprintf("%s/conso_train.csv", path_files),
     dec = ".",
     stringsAsFactors = FALSE
 )
 
-colnames(conso_train) <- c('date_time', 'puissance')
-
-
-## delete doublons
-conso_train <- conso_train[-which(duplicated(conso_train)),]
-
-# dates
-conso_train$date_time[1]
-# [1] "2015-09-13T00:59:59+02:00"
-
-date_conso <- strsplit(conso_train$date_time, split = "\\+")
-dt <- strptime(
-    sapply(date_conso, function(x){x[1]}),
-    format = "%Y-%m-%dT%H:%M:%S"
-)
-conso_train <- conso_train %>%
-    tibble::add_column(
-        fuseau_hor = paste0("+", sapply(date_conso, function(x){x[2]})),
-        dt_posix = as.POSIXct(dt),
-        .after = "date_time"
-    )
-
-## round posix
-conso_train$dt_posix <- round_date(conso_train$dt_posix, "hour")
-
-##--------------------------------
-# meteo train
-##--------------------------------
+## Importation de meteo_train
 meteo_train <- read.csv2(
-    file = completePath("%s/data/meteo_train.csv"),
-    dec = "."
+    file = sprintf("%s/meteo_train.csv", path_files),
+    dec = ".",
+    stringsAsFactors = FALSE
 )
+
+## Importation de meteo_prev
+meteo_prev <- read.csv2(
+    file = sprintf("%s/meteo_prev.csv", path_files),
+    dec = ".",
+    stringsAsFactors = FALSE
+)
+
+##=====================================================
+# Nettoyage des Donnees
+##=====================================================
+##--------------------------------
+# noms de colonnes
+##--------------------------------
+
+colnames(conso_train) <- c('datetime', 'puissance')
 
 colnames(meteo_train)
 # [1] "date_utc"             "temp"                 "P..hPa."             
@@ -78,110 +70,148 @@ colnames(meteo_train)
 
 ## rename meteo_train
 newnames <- c(
-    "ï..Date.UTC" = "date_time_utc",
-    "TÂ.â.ž..C." =  "temp",
-    "P..hPa." = "pression",
-    "HR...." = "hr",
-    "P.rosâ.šÂ.e..Â.â.žC." = "p_ros",
-    "Visi..km." = "visi",
-    "Vt..moy...km.h." = "vt_moy",
-    "Vt..raf...km.h." = "vt_raf",
-    "Vt..dir..Â.â.ž." = "vt_dir",
-    "RR.3h..mm." = "rr_3h",
-    "Neige..cm." = "neige",
-    "Nebul...octats."  = "nebul"
+    "datetime", "temp", "pression", "hr", "p_rosee",
+    "visi", "vt_moy", "vt_raf", "vt_dir", "rr_3h",
+    "neige", "nebul"
 )
 colnames(meteo_train) <- newnames
+colnames(meteo_prev) <- newnames
 
-## delete doublons
-meteo_train <- meteo_train[-which(duplicated(meteo_train)),]
+##--------------------------------
+# supprimer les doublons
+##--------------------------------
 
-dt_train <- as.POSIXct(strptime(
-    meteo_train$date_time_utc,
+## supprimer les doublons dans conso_train
+dup_conso <- which(duplicated(conso_train))
+conso_train <- conso_train[-dup_conso,]
+print(sprintf("conso_train : %i lignes supprimées !", length(dup_conso)))
+
+## supprimer les doublons dans meteo_train
+dup_meteo <- which(duplicated(meteo_train))
+meteo_train <- meteo_train[-dup_meteo,]
+print(sprintf("meteo_train : %i lignes supprimées !", length(dup_meteo)))
+
+##--------------------------------
+# format des variables (date et vt_dir)
+##--------------------------------
+# dates
+conso_train$datetime[1]
+# [1] "2015-09-13T00:59:59+02:00"
+
+conso_dt <- strsplit(conso_train$datetime, split = "\\+")
+## Extraire la date
+conso_dt_format <- as.POSIXct(strptime(
+    sapply(conso_dt, function(x){x[1]}),
+    format = "%Y-%m-%dT%H:%M:%S"
+))
+## Enfin, on arrondit la date
+conso_train$datetime <- round_date(conso_dt_format, "hour")
+## fuseau horaire
+conso_train$fuseau <- paste0("+", sapply(conso_dt, function(x){x[2]}))
+
+## dans meteo train
+dt_meteotrain <- as.POSIXct(strptime(
+    meteo_train$datetime,
     format = "%d/%m/%y %Hh%M"
 ))
-
 meteo_train <- meteo_train %>%
-    tibble::add_column(
-        dt_posix = dt_train,
-        Weekday = wday(dt_train, label = TRUE, abbr = FALSE),
-        Day = day(dt_train),
-        Month = month(dt_train, label = TRUE, abbr = FALSE),
-        Year = year(dt_train),
-        Hour = hour(dt_train),
-        .after = "date_time_utc"
-    ) %>%
-    dplyr::select(-date_time_utc)
+    dplyr::mutate(
+        datetime = dt_meteotrain,
+        vt_dir = circular(vt_dir, type = "direction", units = "degrees", zero = 0)
+    )
+
+## dans meteo pred
+dt_meteoprev <- as.POSIXct(strptime(
+    meteo_prev$datetime,
+    format = "%d/%m/%y %Hh%M"
+))
+meteo_prev <- meteo_prev  %>%
+    dplyr::mutate(
+        datetime = dt_meteoprev,
+        vt_dir = circular(vt_dir, type = "direction", units = "degrees", zero = 0)
+    )
+
+##--------------------------------
+# ajout de variables
+##--------------------------------
 
 meteo_train <- meteo_train %>%
     dplyr::mutate(
-        f_weekend = as.numeric(
-            Weekday %in% c("Saturday", "Sunday")
-        ),
-        f_evening = as.numeric(
-            ifelse(month(dt_posix) %in% c(4:10), Hour >= 21, Hour >= 18)
-        ),
+        Weekday = wday(datetime, label = TRUE, abbr = FALSE),
+        Day = day(datetime),
+        Month = month(datetime, label = TRUE, abbr = FALSE),
+        Year = year(datetime),
+        Hour = hour(datetime)
+    )
+
+meteo_prev <- meteo_prev %>%
+    dplyr::mutate(
+        Weekday = wday(datetime, label = TRUE, abbr = FALSE),
+        Day = day(datetime),
+        Month = month(datetime, label = TRUE, abbr = FALSE),
+        Year = year(datetime),
+        Hour = hour(datetime)
+    )
+
+
+##=================================================
+# ajout de variables
+##=================================================
+
+jours_feries <- c("01/01", "01/05", "08/05", "14/07", "15/08", "01/11", "25/12")
+
+meteo_train <- meteo_train %>%
+    dplyr::mutate(
         rose_vt = cut(
             replace(vt_dir, vt_dir >= 315, 0),
-            breaks = c(0, seq(45, 315, 90)),
+            breaks = c(0, seq(45, 315, by = 90)),
             labels = c("North", "East", "South", "West"),
             right = FALSE
         ),
-        vt_north = as.numeric(is.na(vt_dir) & (vt_dir < 67.5 | vt_dir > 292.5)),
-        vt_east = as.numeric(is.na(vt_dir) & between(vt_dir, 22.5, 157.5)),
-        vt_south = as.numeric(is.na(vt_dir) & between(vt_dir, 112.5, 247.5)),
-        vt_west = as.numeric(is.na(vt_dir) & between(vt_dir, 202.5, 337.5)),
-        vt_dir = circular(vt_dir, units = "degrees", zero = 0)
+        f_weekend = Weekday %in% c("Saturday", "Sunday"),
+        f_ferie = as.numeric(mapply(
+            all,
+            format(datetime, "%d/%m") %in% jours_feries,
+            f_weekend
+        )),
+        f_season = factor(
+            ifelse(month(datetime) %in% c(4:10), "summer", "winter"),
+            levels = c("summer", "winter")
+        ),
+        f_evening = as.numeric(
+            ifelse(month(datetime) %in% c(4:10), Hour >= 21, Hour >= 18)
+        ),
+        f_midnight = as.numeric(Hour <= 2),
+        f_hour = factor(Hour, seq(0, 21, 3), paste0("H", seq(0, 21, 3)))
     )
 
 summary(meteo_train)
 
-##--------------------------------
-# meteo prev
-##--------------------------------
-meteo_prev <- read.csv2(
-    file = completePath("%s/data/meteo_prev.csv"),
-    dec = "."
-)
-colnames(meteo_prev) <- newnames
-
-dt_prev <- as.POSIXct(strptime(
-    meteo_prev$date_time_utc,
-    format = "%d/%m/%y %Hh%M"
-))
-
-meteo_prev <- meteo_prev %>%
-    tibble::add_column(
-        dt_posix = dt_prev,
-        Weekday = wday(dt_prev, label = TRUE, abbr = FALSE),
-        Day = day(dt_prev),
-        Month = month(dt_prev, label = TRUE, abbr = FALSE),
-        Year = year(dt_prev),
-        Hour = hour(dt_prev),
-        .after = "date_time_utc"
-    ) %>%
-    dplyr::select(-date_time_utc)
-
 meteo_prev <- meteo_prev %>%
     dplyr::mutate(
-        f_weekend = as.numeric(
-            Weekday %in% c("Saturday", "Sunday")
-        ),
-        f_evening = as.numeric(
-            ifelse(month(dt_posix) %in% c(4:10), Hour >= 21, Hour >= 18)
-        ),
         rose_vt = cut(
             replace(vt_dir, vt_dir >= 315, 0),
-            breaks = c(0, seq(45, 315, 90)),
+            breaks = c(0, seq(45, 315, by = 90)),
             labels = c("North", "East", "South", "West"),
             right = FALSE
         ),
-        vt_north = as.numeric(is.na(vt_dir) & (vt_dir < 67.5 | vt_dir > 292.5)),
-        vt_east = as.numeric(is.na(vt_dir) & between(vt_dir, 22.5, 157.5)),
-        vt_south = as.numeric(is.na(vt_dir) & between(vt_dir, 112.5, 247.5)),
-        vt_west = as.numeric(is.na(vt_dir) & between(vt_dir, 202.5, 337.5)),
-        vt_dir = circular(vt_dir, units = "degrees", zero = 0)
+        f_weekend = Weekday %in% c("Saturday", "Sunday"),
+        f_ferie = as.numeric(mapply(
+            all,
+            format(datetime, "%d/%m") %in% jours_feries,
+            f_weekend
+        )),
+        f_season = factor(
+            ifelse(month(datetime) %in% c(4:10), "summer", "winter"),
+            levels = c("summer", "winter")
+        ),
+        f_evening = as.numeric(
+            ifelse(month(datetime) %in% c(4:10), Hour >= 21, Hour >= 18)
+        ),
+        f_midnight = as.numeric(Hour <= 2),
+        f_hour = factor(Hour, seq(0, 21, 3), paste0("H", seq(0, 21, 3)))
     )
+
 
 ##========================================================
 # save
@@ -204,13 +234,13 @@ save(
 #   - puissance variation for each 3 hours + 2 (DP1 = P1 - P0)
 
 consoDf <- conso_train %>%
-    dplyr::select(dt_posix, puissance) %>%
+    dplyr::select(datetime, puissance) %>%
     dplyr::mutate(
-        Hour = hour(dt_posix),
+        Hour = hour(datetime),
         H3 = 3 * (Hour %/% 3),
         R3 = Hour %% 3,
         vpuiss = factor(paste0("P", R3), levels = paste0("P", 0:2)),
-        dt_posix = dt_posix - 3600 * R3
+        datetime = datetime - 3600 * R3
     ) %>%
     dplyr::select(-Hour, -H3, -R3) %>%
     tidyr::spread(vpuiss, puissance) %>%
@@ -224,13 +254,13 @@ consoDf <- conso_train %>%
 
 # meteoDf : meteo without useless data
 data_train <- consoDf %>%
-    dplyr::right_join(meteo_train, by = c("dt_posix")) %>%
-    dplyr::arrange(dt_posix) %>%
+    dplyr::right_join(meteo_train, by = c("datetime")) %>%
+    dplyr::arrange(datetime) %>%
     dplyr::filter(!is.na(P0), !is.na(DP1), !is.na(DP2), !is.na(DP12))
 
 data_prev <- meteo_prev %>%
-    dplyr::filter(dt_posix <= as.POSIXct("2016-09-20 23:00:00")) %>%
-    dplyr::arrange(dt_posix)
+    dplyr::filter(datetime <= as.POSIXct("2016-09-20 23:00:00")) %>%
+    dplyr::arrange(datetime)
 
 ##--------------------------------
 # save

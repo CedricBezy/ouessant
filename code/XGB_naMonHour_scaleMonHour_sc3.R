@@ -20,7 +20,7 @@ library(xgboost)
 library(gsubfn)
 library(scriptName)
 
-nows <- today()
+nows <- format(Sys.time(), "%Y%m%d_%H%M")
 filename <- rev(strsplit(scriptName::current_filename(), "/|\\.")[[1]])[2]
 
 completePath <- function(path, ...){
@@ -73,11 +73,12 @@ Xprev <- prevDf[columns]
 
 puiss_prev <- xgboost_predict(
     Ytrain, Xtrain, Xprev,
-    nrounds = 1000,
+    nrounds = 500,
     objective = "reg:linear",
     eta = 0.01,
     max_depth = 15,
-    min_child_weight = 1,
+    min_child_weight = 3,
+    subsample = 0.8,
     booster = "gbtree",
     normalize_type = 'forest'
 )
@@ -124,3 +125,10 @@ write.csv2(
     row.names = FALSE,
     na = ""
 )
+
+resplot <- plot_submits(submitDf, numsc, mape)
+print(resplot)
+png(completePath("%s/outputs/%s_%s_%.3f.png", nows, filename, mape),
+    width = 600, height = 500)
+print(resplot)
+dev.off()

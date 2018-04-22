@@ -68,18 +68,19 @@ columns <- c(varnums, varfacts, scenario$others)
 
 reality <- read.csv('data/consovect.csv', header = FALSE)
 
-Ytrain <- trainDf[c('P0', 'DP1', 'DP2')]
+Ytrain <- trainDf[c('P0', 'DP1', 'DP12')]
 
 Xtrain <- trainDf[columns]
 Xprev <- prevDf[columns]
 
 puiss_prev <- xgboost_predict(
     Ytrain, Xtrain, Xprev,
-    nrounds = 2000,
+    nrounds = 300,
     objective = "reg:linear",
     eta = 0.01,
     max_depth = 15,
-    min_child_weight = 1,
+    min_child_weight = 3,
+    subsample = 1,
     booster = "gbtree",
     normalize_type = 'forest'
 )
@@ -89,7 +90,7 @@ puiss_prev$dt_posix <- prevDf$dt_posix
 submitDf <- puiss_prev %>%
     dplyr::mutate(
         P1 = P0 + DP1,
-        P2 = P0 + DP2,
+        P2 = P1 + DP12,
         DP1 = NULL,
         DP2 = NULL
     ) %>%
@@ -126,3 +127,10 @@ write.csv2(
     row.names = FALSE,
     na = ""
 )
+
+resplot <- plot_submits(submitDf, numsc, mape)
+print(resplot)
+png(completePath("%s/outputs/%s_%s_%.3f.png", nows, filename, mape),
+    width = 600, height = 500)
+print(resplot)
+dev.off()

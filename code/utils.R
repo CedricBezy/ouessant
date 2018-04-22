@@ -5,6 +5,25 @@ require(gsubfn)
 require(xgboost)
 
 #==============================================
+# measure prediction
+#==============================================
+
+RMSE <- function(x, y){
+    rmse <- sqrt(mean((x - y) ^ 2))
+    return(rmse)
+}
+
+MAPE <- function(y_pred, y_true){
+    mape <- mean(abs((y_true - y_pred)/y_true))
+    return(mape)
+}
+
+MAE <- function (y_pred, y_true) {
+    mae <- mean(abs(y_true - y_pred))
+    return(mae)
+}
+
+#==============================================
 # valeurs manquantes
 #==============================================
 #------------------------
@@ -20,19 +39,36 @@ prop_na <- function(x){
 #------------------------
 # plotting missing values
 #------------------------
+# plot_na renvoie le diagramme en barre donnant la proportion de valeurs
+#   manquantes (NA) dans chaque colonne d'une data.frame.
+# En entrée:
+#   "df": data.frame à évaluer
+#   pareto: logical
+#       si TRUE, les barres sont ordonnées par ordre décroissant
+#       si FALSE, alors les barres sont rangées par ordre alphabetique
+#   simplify: logical
+#       si TRUE, les colonnes sans valeurs manquantes ne sont pas affichés,
+#           seules restent les variables avec valeurs manquantes
+#       si FALSE, toutes les variables sont affichées
+#   legend:  logical ; = TRUE si la legende doit etre affichee, =FALSE sinon
+#   maintitle : titre du graphique (voir "label" de l fonction ggtitle)
+#   subtitle : soustitre du graphique (voir la fonction ggtitle)
+# En sortie :
+#   un graphique de type ggplot
+
 plot_na <- function(
     df,
     pareto = TRUE,
     simplify = TRUE,
-    guide = FALSE,
+    legend = FALSE,
     maintitle = "Missing Values",
     subtitle = NULL
 ){
     ## data : proportion of na
     dfna <- data.frame(
         variable = colnames(df),
-        nb_na = sapply(df, count_na),
-        p_na = sapply(df, prop_na)
+        count_na = sapply(df, count_na),
+        prop_na = sapply(df, prop_na)
     )
     if(simplify){
         dfna <- dfna %>% dplyr::filter(nb_na >= 1)
@@ -45,7 +81,7 @@ plot_na <- function(
     ## Plot Layers
     resbarplot <- ggplot(data = dfna) +
         geom_bar(
-            mapping = aes(variable, p_na, fill = p_na),
+            mapping = aes(variable, prop_na, fill = prop_na),
             stat = "identity",
             col = "black"
         )
@@ -66,41 +102,42 @@ plot_na <- function(
             high = "#333333",
             low = "#CCCCCC"
         )
-        ## set title abnd theme
+    ## set title abnd theme
     resbarplot <- resbarplot +
         ggtitle(maintitle, subtitle) +
         theme_bw()
     
     ## delete legend
-    if(!guide){
+    if(!legend){
         resbarplot <- resbarplot + guides(fill = FALSE)
     }
     ## results
     return(resbarplot)
 }
 
-#==============================================
-# measure prediction
-#==============================================
-
-RMSE <- function(x, y){
-    rmse <- sqrt(mean((x - y) ^ 2))
-    return(rmse)
-}
-
-MAPE <- function(y_pred, y_true){
-    mape <- mean(abs((y_true - y_pred)/y_true))
-    return(mape)
-}
 
 #==============================================
 # manage train and test data
 #==============================================
+
+train_test_split <- function(data, ptrain = 0.75)
+{
+    N <- nrow(data)
+    n <- round(ptrain * N)
+    s <- sample.int(N, n, replace = FALSE)
+    reslist <- list(
+        train = data[s,],
+        test = data[-s,]
+    )
+    return(reslist)
+}
+
+
 #-----------------------------
 # na_replace, center, scale
 #-----------------------------
 ## function to replace na, and center and scale if needed
-replace_center_scale <- function(x,
+replace_na_center_scale <- function(x,
                                  y = NULL,
                                  na_replace = TRUE,
                                  center = TRUE,
@@ -162,12 +199,12 @@ deal_train_test_numerics <- function(
         }else{
             alldata_ls <- list(alldata)
         }
-        ## function to apply on each data.frame (see "replace_center_scale")
+        ## function to apply on each data.frame (see "replace_na_center_scale")
         ## return a new data frame with arrangeddata
         .repl_scale_vars <- function(df){
             ok <- (df$DATA_ == 'train')
             scaled <- mapply(
-                replace_center_scale,
+                replace_na_center_scale,
                 x = df[which(ok), numerics],
                 y = df[which(!ok), numerics],
                 na_replace = na_replace,
@@ -256,14 +293,13 @@ tab.disjonctif <- function(tab){
 
 deal_train_test_factors <- function(train, test, variables, remove = TRUE, ...)
 {
-    factors <- names(which(!sapply(train[variables], is.numeric)))
-    if(length(factors) >= 1){
-        tabTrain <- tab.disjonctif(train[factors])
-        tabTest <- tab.disjonctif(test[factors])
+    if(length(variables) >= 1){
+        tabTrain <- tab.disjonctif(train[variables])
+        tabTest <- tab.disjonctif(test[variables])
         columns <- unname(colnames(tabTrain))
         if(remove){
-            train <- train[setdiff(colnames(train), factors)]
-            test <- test[setdiff(colnames(test), factors)]
+            train <- train[setdiff(colnames(train), variables)]
+            test <- test[setdiff(colnames(test), variables)]
         }
         train <- cbind(train, tabTrain)
         test <- cbind(test, tabTest)
@@ -328,9 +364,58 @@ xgboost_predict <- function(Ytrain, Xtrain, Xtest, ...)
             label = y,
             ...
         )
-        pred <- predict(bst, as.matrix(Xprev))
+        pred <- predict(bst, as.matrix(Xtest))
         return(pred)
     }
     res <- as.data.frame(lapply(Ytrain, .subpredict))
     return(res)
+}
+
+#==============================================
+# plot result
+#==============================================
+
+plot_submits <- function(submitDf, numsc, mape){
+    plots <- ggplot(
+        data = submitDf,
+        mapping = aes(x = hour(datetime))
+    ) +
+        ## reality
+        geom_line(mapping = aes(y = reality),
+                  col = "red",
+                  lwd = 1) +
+        geom_point(mapping = aes(y = reality),
+                   col = "red") +
+        ## prediction
+        geom_line(mapping = aes(y = puissance),
+                  col = "blue",
+                  lwd = 1) +
+        geom_point(mapping = aes(y = puissance),
+                   col = "blue") +
+        ## other parameters
+        scale_x_continuous(
+            name = "Hour",
+            breaks = seq(0, 23, 3),
+            minor_breaks = seq(0, 23, 1),
+            limits = c(0, 23)
+        ) +
+        facet_wrap(
+            ~format(submitDf$datetime, "%b-%d-(%a)"),
+            scales = "free_x"
+        ) +
+        theme_bw() +
+        theme(
+            panel.grid.major = element_line(color = "grey40"),
+            panel.grid.minor = element_line(color = "grey70",
+                                            linetype = "dashed",
+                                            size = 0.2)
+        ) +
+        ggtitle(
+            label = sprintf(
+                "Graphique Prediction, scenario %i, (mape = %.2f)",
+                numsc, mape
+            ),
+            subtitle = "blue : prediction ; red : reality"
+        )
+    return(plots)
 }

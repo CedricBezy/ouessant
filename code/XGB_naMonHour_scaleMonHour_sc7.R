@@ -74,16 +74,17 @@ Xprev <- prevDf[columns]
 
 puiss_prev <- xgboost_predict(
     Ytrain, Xtrain, Xprev,
-    nrounds = 2000,
+    nrounds = 300,
     objective = "reg:linear",
     eta = 0.01,
     max_depth = 15,
-    min_child_weight = 1,
+    min_child_weight = 5,
+    subsample = 1,
     booster = "gbtree",
     normalize_type = 'forest'
 )
 
-puiss_prev$dt_posix <- prevDf$dt_posix
+puiss_prev$datetime <- prevDf$datetime
 
 submitDf <- puiss_prev %>%
     dplyr::mutate(
@@ -100,10 +101,10 @@ submitDf <- puiss_prev %>%
             labels = 0:2
         ),
         Hour = as.numeric(as.character(variable)),
-        dt_posix = dt_posix + 3600 * Hour
+        datetime = datetime + 3600 * Hour
     ) %>%
-    dplyr::select(dt_posix, puissance) %>%
-    dplyr::arrange(dt_posix) %>%
+    dplyr::select(datetime, puissance) %>%
+    dplyr::arrange(datetime) %>%
     tibble::add_column(
         reality = reality$V1,
         .after = "puissance"
@@ -111,11 +112,12 @@ submitDf <- puiss_prev %>%
     dplyr::mutate(
         mape = abs(puissance - reality) / abs(reality) * 100
     ) %>%
-    dplyr::left_join(data_prev[c("dt_posix", unlist(scenario))], by = "dt_posix")
+    dplyr::left_join(data_prev[c("datetime", unlist(scenario))], by = "datetime")
 
 ## Evaluation
 rmse <- RMSE(submitDf$puissance, submitDf$reality)
 mape <- MAPE(submitDf$puissance, submitDf$reality) * 100
+mae <- MAE(submitDf$puissance, submitDf$reality)
 
 print(sprintf("Scenario %i: mape = %f", numsc, mape))
 
@@ -125,3 +127,10 @@ write.csv2(
     row.names = FALSE,
     na = ""
 )
+
+resplot <- plot_submits(submitDf, numsc, mape)
+print(resplot)
+png(completePath("%s/outputs/%s_%s_%.3f.png", nows, filename, mape),
+    width = 600, height = 500)
+print(resplot)
+dev.off()
