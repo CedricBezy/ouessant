@@ -1,11 +1,12 @@
 ---
-title: "Challenge: Prédiction de la consommation électrique sur l'ile d'Ouessant"
-author: Cedric Bezy, Riwan Mouster (SIdRC)
-output: 
-    html_notebook:
-        toc: true
-        depth: 4
-        #theme: united
+title: 'Challenge: Prediction de la consommation electrique sur l''ile d''Ouessant'
+author: "Cedric Bezy, Riwan Mouster (SIdRC)"
+output:
+  html_notebook:
+    depth: 4
+    toc: yes
+  pdf_document:
+    toc: yes
 ---
 
 \tableofcontents
@@ -185,7 +186,7 @@ plot_na <- function(
 }
 ```
 
-### Fonction pour spliter une table de données en 2.
+### Fonction pour diviser une table de données en 2.
 
 ```{r}
 # La fonction permet de spliter une data.frame en 2 echantillon selon une proportion ptrain entre 0 et 1.
@@ -212,20 +213,163 @@ Comment doivent être traitées les variables numériques ? En général, les va
 
 Dans l'échantillon test, le remplacement des variables se fait sur le modèle de la table d'apprentissage (valeur de la moyenne et de l'écart-type).
 
-Par niveau, cela signifie que la table est divisée en plusieurs morceaux selon des facteurs, le remplacement des valeurs manquantes et centrer / réduire se fait dans chaque morceau indépendamment des autres.
+Par niveau, cela signifie que la table est divisée en plusieurs morceaux selon des facteurs, le remplacement des valeurs manquantes et centrer / réduire se fait dans chaque morceau indépendamment des autres. Cela permet de conserver un effet de facteur.
 
 ```{r}
+## function to replace na in a vector x, and center and scale if needed
+## this function :
+##      replace na by mean into x, center and scale x
+##      then, it applies on y with x values
 
+replace_na_center_scale <- function(x, y = NULL,
+                                    na_replace = TRUE,
+                                    center = TRUE,
+                                    scale = TRUE)
+{
+    moy <- mean(x, na.rm = TRUE)
+    if(na_replace){x <- replace(x, is.na(x), moy)}
+    std <- sd(x, na.rm = TRUE)
+    cent <- ifelse(center & !is.na(moy), moy, FALSE)
+    scal <- ifelse(scale & !is.na(std) & std != 0, std, FALSE)
+    x_scaled <- scale(x, cent, scal)[,1]
+    ## Do the same on y, with x values
+    if(length(y > 0)){
+        if(na_replace){y <- replace(y, is.na(y), moy)}
+        y_scaled <- scale(y, cent, scal)[,1]
+        result <- list(x = x_scaled, y = y_scaled)
+    }else{
+        result <- x_scaled
+    }
+    return(result)
+}
 ```
-
-### Fonction pour transformer des facteurs en variables indicatrices
-
-
 
 ```{r}
+# cette fonction fait appel à "replace_na_center_scale" ci-dessus
 
+# En entrée:
+# train and test: deux data.frames
+# variables : liste des colonnes à traiter
+# by: liste des facteurs de division
+# na_replace,  center, scale : logicals
+
+# En sortie : une liste de taille 3:
+#   - train : nouvelle table d'apprentissage
+#   - test : nouvelle table de test
+#   - columns : correspond aux variables effectivement modifiées
+
+deal_train_test_numerics <- function(
+    train,
+    test,
+    variables,
+    by = NULL,
+    na_replace = TRUE,
+    center = TRUE,
+    scale = TRUE
+){
+    numerics <- names(which(sapply(train[variables], is.numeric)))
+    if(length(numerics) >= 1){
+        ## keep only wished values to have the same structure
+        train$DATA_ <- "train"
+        train$ORDER_ <- 1:nrow(train)
+        test$DATA_ <- "test"
+        test$ORDER_ <- 1:nrow(test)
+        all_variables <- c(numerics, by, "DATA_", "ORDER_")
+        subTrain <- train[all_variables]
+        subTest <- test[all_variables]
+        ## Then, subTrain and subTest have the same structure
+        # bind train and test data
+        alldata <- rbind(subTrain, subTest)
+        alldata$ORDER_ <- 1:nrow(alldata)
+        
+        # make a list of subdata
+        if(length(by) >= 1){
+            alldata_ls <- split(alldata, alldata[by])
+        }else{
+            alldata_ls <- list(alldata)
+        }
+        ## function to apply on each data.frame (see "replace_na_center_scale")
+        ## return a new data frame with arrangeddata
+        .repl_scale_vars <- function(df){
+            ok <- (df$DATA_ == 'train')
+            scaled <- mapply(
+                replace_na_center_scale,
+                x = df[which(ok), numerics],
+                y = df[which(!ok), numerics],
+                na_replace = na_replace,
+                center = center,
+                scale = scale
+            )
+            if(any(!ok)){
+                scaled <- bind_rows(apply(scaled, 1, bind_cols))
+            }
+            others <- setdiff(colnames(df), numerics)
+            resDf <- cbind(df[others], scaled)
+            return(resDf)
+        }
+        # applying .repl_scale_numerics on each subdata
+        arrangedDf <- bind_rows(lapply(alldata_ls, .repl_scale_vars))
+        
+        # then, we can rebuild train and test
+        arrangedTrain <- arrangedDf %>%
+            dplyr::filter(DATA_ == "train") %>%
+            dplyr::arrange(ORDER_)
+        train[numerics] <- arrangedTrain[numerics]
+        train$DATA_ <- NULL
+        train$ORDER_ <- NULL
+        
+        arrangedTest <- arrangedDf %>%
+            dplyr::filter(DATA_ == "test") %>%
+            dplyr::arrange(ORDER_) %>%
+            dplyr::mutate(DATA_ = NULL, ORDER_ = NULL)
+        test[numerics] <- arrangedTest[numerics]
+        test$DATA_ <- NULL
+        test$ORDER_ <- NULL
+        
+        ## result list : train / test
+        resLs <- list(train = train, test = test, columns = numerics)
+    }else{
+        resLs <- list(train = train, test = test, columns = NULL)
+    }
+    return(resLs)
+}
 ```
 
+### Fonction pour transformer des facteurs en variables disjonctives
+
+Nous avons également programmé une fonction permettant de remplacer les facteurs en variables disjonctives (1 ou 0), afin de pouvoir les traiter comme des variables numériques.
+
+```{r}
+# cette fonction fait appel à "tab.disjonctif" du package FactoMineR
+
+# En entrée:
+# train and test: deux data.frames
+# variables : liste des colonnes à transformer
+# remove : = TRUE si les variables de bases sont à supprimer, = FALSe sinon
+
+# En sortie : une liste de taille 3:
+#   - train : nouvelle table d'apprentissage
+#   - test : nouvelle table de test
+#   - columns : correspond aux noms des nouvelles colonnes
+
+deal_train_test_factors <- function(train, test, variables, remove = TRUE, ...)
+{
+    if(length(variables) >= 1){
+        tabTrain <- FactoMineR::tab.disjonctif(train[variables])
+        tabTest <- FactoMineR::tab.disjonctif(test[variables])
+        columns <- unname(colnames(tabTrain))
+        if(remove){
+            train <- train[setdiff(colnames(train), variables)]
+            test <- test[setdiff(colnames(test), variables)]
+        }
+        train <- cbind(train, tabTrain)
+        test <- cbind(test, tabTest)
+    }else{
+        columns <- NULL
+    }
+    reslist <- list(train = train, test = test, columns = columns)
+}
+```
 
 
 # Gestion des Données
@@ -408,7 +552,7 @@ Nous avons à présent nos données.
 
 # Statistique Descriptive
 
-Avant tout, il est recommandé de faire des statistique descriptives
+Avant tout, il est recommandé de faire des statistiques descriptives
 
 
 
