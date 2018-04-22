@@ -55,7 +55,8 @@ Sys.setlocale("LC_TIME", "English_United States")
 Ces lignes de code permettent d'installer les packages nécessaires.
 
 ```{r, echo=TRUE, include=TRUE, message=FALSE}
-# install.packages(c("dplyr", "tidyr", "ggplot2"))
+# install.packages(c("dplyr", "tidyr"))
+# install.packages(c("ggplot2", "ggpubr"))
 # install.packages(c("circular", "lubridate", "magrittr"))
 # install.packages(c("xgboost", "FactoMineR", "gsubfn"))
 ```
@@ -68,6 +69,10 @@ Maintenant que les packages sont installés, importons-les dans l'environnement.
 ## Gestion DataFrames
 library(dplyr)
 library(tidyr)
+
+## Plots
+library(ggplot2)
+library(ggpubr)
 
 ## Gestion des types particuliers (angle et dates)
 library(circular)
@@ -109,7 +114,7 @@ RMSE <- function(x, y){
 
 ### Fonctions Descriptives: Voir les données manquantes par variable
 
-```{r}
+```{r plot_na}
 # count_na compte le nombre de valeurs manquantes dans un vecteur x
 count_na <- function(x){
     sum(is.na(x))
@@ -151,8 +156,8 @@ plot_na <- function(
     ## data : proportion of na
     dfna <- data.frame(
         variable = colnames(df),
-        count_na = sapply(df, count_na),
-        prop_na = sapply(df, prop_na)
+        nb_na = sapply(df, count_na),
+        p_na = sapply(df, prop_na)
     )
     if(simplify){
         dfna <- dfna %>% dplyr::filter(nb_na >= 1)
@@ -161,19 +166,16 @@ plot_na <- function(
         dfna <- dfna %>% dplyr::arrange(desc(p_na), variable)
         dfna$variable <- factor(dfna$variable, unique(dfna$variable))
     }
-    
     ## Plot Layers
     resbarplot <- ggplot(data = dfna) +
         geom_bar(
-            mapping = aes(variable, prop_na, fill = prop_na),
+            mapping = aes(variable, p_na, fill = p_na),
             stat = "identity",
             col = "black"
         )
     resbarplot <- resbarplot +
         ## modify x axis
-        scale_x_discrete(
-            name = NULL
-        ) +
+        scale_x_discrete(name = NULL) +
         # modify y axis
         scale_y_continuous(
             name = "Prop NA",
@@ -181,12 +183,9 @@ plot_na <- function(
             limits = c(0, 1)
         ) +
         ## Modify colors
-        scale_fill_continuous(
-            name = "Prop NA",
-            high = "#333333",
-            low = "#CCCCCC"
-        )
-        ## set title abnd theme
+        scale_fill_continuous(name="Prop NA", high="#333333", low="#CCCCCC")
+    
+    ## set title abnd theme
     resbarplot <- resbarplot +
         ggtitle(maintitle, subtitle) +
         theme_bw()
@@ -202,7 +201,7 @@ plot_na <- function(
 
 ### Fonction pour diviser une table de données en deux échantillons.
 
-```{r}
+```{r train_test_split}
 # La fonction permet de spliter une data.frame en 2 echantillon selon une proportion ptrain entre 0 et 1.
 # L'échantillon train contient une proportion ptrain de lignes
 # l'échantillon test contient une proportion (1-ptrain) de lignes
@@ -227,9 +226,9 @@ Comment doivent être traitées les variables numériques ? En général, les va
 
 Dans l'échantillon test, le remplacement des variables se fait sur le modèle de la table d'apprentissage (valeur de la moyenne et de l'écart-type).
 
-Par niveau, cela signifie que la table est divisée en plusieurs morceaux selon des facteurs, le remplacement des valeurs manquantes et centrer / réduire se fait dans chaque morceau indépendamment des autres. Cela permet de conserver un effet de facteur.
+Par niveau, cela signifie que la table est divisée en plusieurs morceaux selon des facteurs, le remplacement des valeurs manquantes et centrer / réduire se fait dans chaque morceau indépendamment des autres.
 
-```{r}
+```{r replace_na_center_scale}
 ## function to replace na in a vector x, and center and scale if needed
 ## this function :
 ##      replace na by mean into x, center and scale x
@@ -258,7 +257,7 @@ replace_na_center_scale <- function(x, y = NULL,
 }
 ```
 
-```{r}
+```{r deal_train_test_numerics}
 # cette fonction fait appel à "replace_na_center_scale" ci-dessus
 
 # En entrée:
@@ -353,7 +352,7 @@ deal_train_test_numerics <- function(
 
 Nous avons également programmé une fonction permettant de remplacer les facteurs en variables disjonctives (1 ou 0), afin de pouvoir les traiter comme des variables numériques.
 
-```{r}
+```{r deal_train_test_factors}
 # cette fonction fait appel à "tab.disjonctif" du package FactoMineR
 
 # En entrée:
@@ -557,12 +556,188 @@ En outre, nous avons établis d'autres facteurs:
     + en été ("summer"), =1 au dessus de 21h, =0 sinon.
     + en hiver ("winter"), =1 au dessus de 18h, =0 sinon
 
+```{r}
+meteo_train <- meteo_train %>%
+    dplyr::mutate(
+        Weekday = wday(datetime, label = TRUE, abbr = FALSE),
+        Day = day(datetime),
+        Month = month(datetime, label = TRUE, abbr = FALSE),
+        Year = year(datetime),
+        Hour = hour(datetime),
+        rose_vt = cut(
+            replace(vt_dir, vt_dir >= 315, 0),
+            breaks = c(0, seq(45, 315, by = 90)),
+            labels = c("North", "East", "South", "West"),
+            right = FALSE
+        ),
+        f_weekend = Weekday %in% c("Saturday", "Sunday"),
+        f_season = factor(
+            ifelse(month(datetime) %in% c(4:10), "summer", "winter"),
+            levels = c("summer", "winter")
+        ),
+        f_evening = as.numeric(
+            ifelse(month(datetime) %in% c(4:10), Hour >= 21, Hour >= 18)
+        )
+    )
+
+str(meteo_train)
+
+meteo_prev <- meteo_prev %>%
+    dplyr::mutate(
+        Weekday = wday(datetime, label = TRUE, abbr = FALSE),
+        Day = day(datetime),
+        Month = month(datetime, label = TRUE, abbr = FALSE),
+        Year = year(datetime),
+        Hour = hour(datetime),
+        rose_vt = cut(
+            replace(vt_dir, vt_dir >= 315, 0),
+            breaks = c(0, seq(45, 315, by = 90)),
+            labels = c("North", "East", "South", "West"),
+            right = FALSE
+        ),
+        f_weekend = Weekday %in% c("Saturday", "Sunday"),
+        f_season = factor(
+            ifelse(month(datetime) %in% c(4:10), "summer", "winter"),
+            levels = c("summer", "winter")
+        ),
+        f_evening = as.numeric(
+            ifelse(month(datetime) %in% c(4:10), Hour >= 21, Hour >= 18)
+        )
+    )
+
+str(meteo_prev)
+
+```
+
+
+
+
 Nous avons à présent nos données.
 
 # Statistique Descriptive
 
 Avant tout, il est recommandé de faire des statistiques descriptives.
 
+```{r, echo=FALSE, include=TRUE}
+
+ggarrange(
+    plot_na(meteo_train, subtitle = "Meteo Train") +
+        theme(axis.text.x = element_text(angle = 30)),
+    plot_na(meteo_prev, subtitle = "Meteo Prev") +
+        theme(axis.text.x = element_text(angle = 30)),
+    nrow = 1,
+    ncol = 2,
+    widths = c(8, 3)
+) 
+
+```
+
+```{r, echo=FALSE, include=TRUE}
+
+dfconso <- conso_train %>%
+    dplyr::arrange(datetime) %>%
+    dplyr::mutate(
+        Weekday = wday(datetime, label = TRUE, abbr = TRUE),
+        Day = day(datetime),
+        Month = month(datetime, label = TRUE, abbr = TRUE),
+        Year = year(datetime),
+        Hour = hour(datetime),
+        year_month = paste(Year, Month, sep = "-"),
+        year_month = factor(year_month, unique(year_month))
+    )
+
+dfconso_summa_month <- dfconso %>%
+    dplyr::group_by(Month, Hour) %>%
+    dplyr::summarise(
+        n = n(),
+        moy_puiss = mean(puissance),
+        std_puiss = sd(puissance)
+    )
+
+plot_conso_month_hour <- ggplot(
+    data = dfconso_summa_month,
+    mapping = aes(x = Hour, y = moy_puiss, col = Month)
+) +
+    geom_point() +
+    geom_line() +
+    scale_x_continuous(
+        name = "Hour",
+        breaks = seq(0, 23, 2)
+    ) +
+    scale_color_hue(name = 'Day', h.start = 100, direction = -1) +
+    ggtitle("Consommation d'electricite moyenne par mois et par heure")
+
+print(plot_conso_month_hour)
+
+
+dfconso_summa_year_month <- dfconso %>%
+    dplyr::group_by(year_month, Month, Hour) %>%
+    dplyr::summarise(
+        n = n(),
+        moy_puiss = mean(puissance),
+        std_puiss = sd(puissance)
+    )
+
+plot_conso_year_month_hour <- ggplot(
+    data = dfconso_summa_year_month,
+    mapping = aes(x = Hour, y = moy_puiss, col = Month)
+) +
+    geom_point() +
+    geom_line() +
+    facet_wrap(~year_month, scales = "free_x", nrow = 3) +
+    scale_x_continuous(
+        name = "Hour",
+        breaks = seq(0, 23, 2)
+    ) +
+    scale_color_hue(name = 'Day', h.start = 100, direction = -1) +
+    ggtitle("Consommation d'electricite moyenne par mois et par heure")
+
+print(plot_conso_year_month_hour)
+
+```
+
+```{r, echo=FALSE, include=TRUE}
+build_plot_train <- function(ivar){
+    ggplot(data = meteo_train) +
+        facet_wrap(~Year+Month, scales = "free_x", nrow = 3) +
+        geom_line(
+            mapping = aes_string('Day', ivar, col = 'as.factor(Hour)'),
+            na.rm = TRUE
+        ) +
+        scale_color_hue(name = 'Hour', h.start = 100, direction = -1) +
+        ggtitle(sprintf("%s selon mois et heure (train)", ivar))
+}
+
+build_plot_test <- function(ivar){
+    ggplot(data = meteo_prev) +
+        geom_line(
+            mapping = aes_string('Hour', ivar, col = 'as.factor(Day)'),
+            na.rm = TRUE
+        ) +
+        scale_color_hue(name = 'Day', h.start = 100, direction = -1) +
+        ggtitle(sprintf("%s selon mois et heure (test)", ivar))
+}
+
+x_vars <- c(
+    "temp", "pression", "hr",  "p_rosee", "visi",
+    "vt_moy", "vt_raf", "rr_3h", "nebul"
+)
+
+plot_list_train <- lapply(
+    x_vars,
+    build_plot_train
+)
+names(plot_list_train) <- x_vars
+plot_list_train
+
+plot_list_test <- lapply(
+    x_vars,
+    build_plot_test
+)
+names(plot_list_test) <- x_vars
+plot_list_test
+
+```
 
 
 
@@ -619,18 +794,21 @@ consoDf <- conso_train %>%
 str(consoDf)
 ```
 
+### Quelles variables ont été retenues dans le modèle final ?
 
 
 
 
 
+### Comment gérer les valeurs manquantes ?
+
+Les valeurs manquantes ont été remplacées par la moyenne par mois et par heure (toutes les 3heures, donc), ce afin de risquer de biaiser l'étude. En effet, la température n'est pas la même le 1er janvier à midi qu'à minuit, et encore moins que le 1er juillet.
+
+### Quid du centrage et de la réduction d'échelle ?
+
+Nous avons également centré réduit en fonction du mois et de l'heure.
 
 
-
-
-
-
-La meilleure prédiction a été obtenue grâce à xgboost.
 
 
 
