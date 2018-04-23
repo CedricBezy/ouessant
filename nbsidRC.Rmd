@@ -56,7 +56,7 @@ _path\_file_ contient une chaine donnant le dossier de localisation des fichiers
 
 ```{r}
 ## A modifier
-path_files <- "D:/Documents/PROJETS/Kaggle/ouessant/ouessant_copy/data" 
+path_files <- "C:/Users/rmouster/Documents/perso/sfds/ouessant_copy/data" 
 ```
 
 ### Installation des packages
@@ -65,7 +65,7 @@ Ces lignes de code permettent d'installer les packages nécessaires.
 
 ```{r, echo=TRUE, include=TRUE, message=FALSE}
 # install.packages(c("dplyr", "tidyr"))
-# install.packages(c("ggplot2", "ggpubr"))
+ #install.packages(c("ggplot2", "ggpubr"))
 # install.packages(c("circular", "lubridate", "magrittr"))
 # install.packages(c("xgboost", "FactoMineR", "gsubfn"))
 ```
@@ -647,7 +647,7 @@ Nous avons à présent nos données.
 
 Avant tout, il est recommandé de faire des statistiques descriptives.
 
-```{r, echo=FALSE, include=TRUE}
+```{r, echo=T, include=TRUE}
 
 ggarrange(
     plot_na(meteo_train, subtitle = "Meteo Train") +
@@ -660,7 +660,8 @@ ggarrange(
 ) 
 
 ```
-
+Nous remarquons que il y a beaucoup de valeur manquante pour la variable neige. Nous supposons que cette variable n'a pas été remplie quand il na pas neigé.
+De plus nous remarquons aussi que il manque certaine données pour les variables nebul et rr_3h. Il faudra remplacer ou supprimer les valeurs manquantes.
 ```{r, echo=FALSE, include=TRUE}
 
 dfconso <- conso_train %>%
@@ -723,6 +724,14 @@ plot_conso_year_month_hour <- ggplot(
 
 print(plot_conso_year_month_hour)
 
+```
+Il semble y avoir un phénomène longitudinal, en effet la consommation journalière est plus basse en été que en hiver.
+```{r}
+df1<-tidyr::gather(meteo_train,"feat","value",c(temp,pression,hr,visi,vt_moy,vt_raf,vt_dir,rr_3h,neige,p_rosee,nebul))
+boxplot<-ggplot(data = df1)+ 
+  geom_boxplot(mapping = aes(feat,value))
+
+print(boxplot)
 ```
 
 # Mise en place du modèle
@@ -873,7 +882,7 @@ res_mape <- numeric()
 res_rmse <- numeric()
 
 # Modifier la valeur de N par un grand nombre (nous avons pris 70).
-N <- 1
+N <- 5
 
 for(i in 1:N){
     # spliter a 79%

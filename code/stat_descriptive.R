@@ -111,4 +111,7 @@ plot_list_test
 
 
 
+df1<-tidyr::gather(meteo_train,"feat","value",c(temp,pression,hr,visi,vt_moy,vt_raf,vt_dir,rr_3h,neige,p_rosee,nebul))
+ggplot(data = df1)+
+  geom_boxplot(mapping = aes(feat,value))
 
