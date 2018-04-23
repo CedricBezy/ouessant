@@ -50,6 +50,15 @@ Nous avons fais le choix de travailler dans un enviromment local anglais (notamm
 Sys.setlocale("LC_TIME", "English_United States")
 ```
 
+### Chemin d'accès aux dossiers souhaités
+
+_path\_file_ contient une chaine donnant le dossier de localisation des fichiers nécessaires pour cette étude.
+
+```{r}
+## A modifier
+path_files <- "D:/Documents/PROJETS/Kaggle/ouessant/ouessant_copy/data" 
+```
+
 ### Installation des packages
 
 Ces lignes de code permettent d'installer les packages nécessaires.
@@ -385,18 +394,36 @@ deal_train_test_factors <- function(train, test, variables, remove = TRUE, ...)
 ```
 
 
+```{r xgboost_predict}
+## cette fonction realise un xgboost sur l'ensemble des vecteurs contenues dans la list Ytrain par les données contenus dans Xtrain
+## et renvoie une prediction pour chaque vecteur de Ytrain selon les donnees de Xtest
+
+xgboost_predict <- function(Ytrain, Xtrain, Xtest, ...)
+{
+    ## prediction sur une colonne, par xgboost
+    ## ... = arguments of Xgboost
+    .subpredict <- function(y){
+        w <- which(!is.na(y))
+        bst <- xgboost(
+            data = as.matrix(Xtrain[w,]),
+            label = y[w],
+            ...
+        )
+        pred <- predict(bst, as.matrix(Xtest))
+        return(list(pred = pred, bst = bst))
+    }
+    predict_list <- lapply(Ytrain, .subpredict)
+    predDf <- as.data.frame(lapply(predict_list, function(x){x$pred}))
+    predBst <- lapply(predict_list, function(x){x$bst})
+    reslist <- list(predictions = predDf, bst = predBst)
+    return(reslist)
+}
+```
+
+
 # Gestion des Données
 
 Maintenant que l'environnement de travail a été initialisé, nous pouvons nous occuper des données
-
-### Chemin d'accès aux données
-
-_path\_file_ contient une chaine donnant le dossier de localisation des fichiers de données.
-
-```{r}
-## A modifier
-path_files <- "ouessant_copy/data" 
-```
 
 ### Importation des données
 
@@ -528,7 +555,9 @@ meteo_prev <- meteo_prev  %>%
     dplyr::mutate(
         datetime = dt_meteoprev,
         vt_dir = circular(vt_dir, type = "direction", units = "degrees", zero = 0)
-    )
+    ) %>%
+    ## /!\ meteo_prev a une ligne en trop
+    dplyr::filter(datetime <= as.POSIXct("2016-09-20 23:00:00"))
 
 ```
 
@@ -696,53 +725,6 @@ print(plot_conso_year_month_hour)
 
 ```
 
-```{r, echo=FALSE, include=TRUE}
-build_plot_train <- function(ivar){
-    ggplot(data = meteo_train) +
-        facet_wrap(~Year+Month, scales = "free_x", nrow = 3) +
-        geom_line(
-            mapping = aes_string('Day', ivar, col = 'as.factor(Hour)'),
-            na.rm = TRUE
-        ) +
-        scale_color_hue(name = 'Hour', h.start = 100, direction = -1) +
-        ggtitle(sprintf("%s selon mois et heure (train)", ivar))
-}
-
-build_plot_test <- function(ivar){
-    ggplot(data = meteo_prev) +
-        geom_line(
-            mapping = aes_string('Hour', ivar, col = 'as.factor(Day)'),
-            na.rm = TRUE
-        ) +
-        scale_color_hue(name = 'Day', h.start = 100, direction = -1) +
-        ggtitle(sprintf("%s selon mois et heure (test)", ivar))
-}
-
-x_vars <- c(
-    "temp", "pression", "hr",  "p_rosee", "visi",
-    "vt_moy", "vt_raf", "rr_3h", "nebul"
-)
-
-plot_list_train <- lapply(
-    x_vars,
-    build_plot_train
-)
-names(plot_list_train) <- x_vars
-plot_list_train
-
-plot_list_test <- lapply(
-    x_vars,
-    build_plot_test
-)
-names(plot_list_test) <- x_vars
-plot_list_test
-
-```
-
-
-
-
-
 # Mise en place du modèle
 
 ### Comment prédire une maille horaire en ayant des données météo en maille tri-horaire ?
@@ -758,15 +740,6 @@ Nous avons calculé 2 autres vecteurs :
 * DP2 = P2 - P0 (écart entre les vecteurs P0 et P2)
 
 Nous effectuerons 3 prédictions, sur les vecteurs P0, DP1 et DP2.
-
-
-### Comment gérer le changement d'heure ?
-
-Les données sont effectivement impactées par le changement d'heure, les derniers dimanches des mois d'octobre et mars.
-
-En octobre, on recule d'une heure, mais dans les données, il n'y a pas deux lignes à 2h du matin. Avec les données à disposition, ce n'est donc pas un problème.
-
-En mars, on avance d'une heure. Il y a donc une valeur de moins, puisqu'il n'y a pas de ligne à 2h du matin. Par conséquent, le modèle H+2 aura donc une ligne de moins.
 
 ```{r}
 # consoDf : contains consommation :
@@ -794,22 +767,197 @@ consoDf <- conso_train %>%
 str(consoDf)
 ```
 
+### Comment gérer le changement d'heure ?
+
+Les données sont effectivement impactées par le changement d'heure, les derniers dimanches des mois d'octobre et mars.
+
+En octobre, on recule d'une heure, mais dans les données, il n'y a pas deux lignes à 2h du matin. Avec les données à disposition, ce n'est donc pas un problème.
+
+En mars, on avance d'une heure. Il y a donc une valeur de moins, puisqu'il n'y a pas de ligne à 2h du matin. Par conséquent, le modèle H+2 aura donc une ligne de moins.
+
 ### Quelles variables ont été retenues dans le modèle final ?
 
+Après de nombreux essais, notre modèle final s'est révélé comme le suivant :
+
+* **Month** (disjonctif, 12 colonnes)
+* **Weekday** (disjonctif, 7 colonnes)
+* **Hour**
+* **temp** (centrée réduite)
+* **pression** (centrée réduite)
+* **hr** (centrée réduite)
+* **p_rosee** (centrée réduite)
+* **visi** (centrée réduite)
+* **vt_raf** (centrée réduite)
+* **rr_3h** (centrée réduite)
+* **nebul** (centrée réduite)
+* **rose_vt** (disjonctif, 4 colonnes)
+* **f_season** (disjonctif, 2 colonnes)
+* **f_weekend** (déjà considérée comme disjonctive)
+
+Cela donne 14 variables, débouchant sur 35 colonnes.
+
+La variable **neige** n'avait aucun interêt car aucune variation dans les données d'apprentissage, et **vt_moy** est corrélée à **vt_raf**.
+
+```{r}
+scenario <- list(
+    factors = c(
+        "Month",
+        "Weekday",
+        "rose_vt",
+        "f_season"
+    ),
+    numerics = c(
+        "temp",
+        "pression",
+        "hr",
+        "p_rosee",
+        "visi",
+        "vt_raf",
+        "rr_3h",
+        "nebul"
+    ),
+    others = c('Hour', "f_weekend")
+)
+
+```
+
+### Comment les variables ont-elles été pré-traitées ?
+
+Les valeurs manquantes ont été remplacées par la moyenne par mois et par heure (toutes les 3heures, donc), ce afin de risquer de biaiser l'étude. En effet, la température n'est pas la même le 1er janvier à midi qu'à minuit, et encore moins que le 1er juillet, par exemple.
+
+Nous avons également centré réduit en fonction du mois et de l'heure. Nous avions également essayé de centrer et réduire sur l'ensemble des données, mais cela semblait moins efficace au vu du critère MAPE.
+
+Les facteurs ont quant à eux été transformés en variables disjonctives (1 / 0) pour chaque modalité.
+
+### Comment a été determiné le "meilleur modèle" ?
+
+Nous avons réalisé nos tests en local. Pour cela :
+
+    1. Nous avons décomposé notre jeu d'apprentissage en deux sous-jeux (79% en sous-apprentissage et 21% en sous-test).
+    2. Nous avons traités les variables comme vu précédemment, 
+    3. Nous entrainons trois modèles par une méthode de Machine Learning aux paramètres identiques sur P0, DP1 et DP2 à partir du sous-jeu d'apprentissage.
+    4. Nous obtenons les prédictions du sous-jeu de test pour 3 modèles, que nous rassemblons et comparons au sous-jeu de test (critère MAPE).
+    5. Nous réalisons ces étapes 70 fois, et comparons le MAPE moyen de chaque modèle, et prenons le modèle ayant le critère minimum.
+
+Nous avons réalisé ces étapes :
+
+* Pour choisir les variables, sur une même méthode
+* Pour chosir la méthode de machine learning, ainsi que les paramètres. Il s'est rapidement avéré que XGBoost donne des meilleurs résultats, avec pour paramètres :
+    + nrounds = 300,
+    + objective = "reg:linear",
+    + booster = "gbtree",
+    + eta = 0.01,
+    + max_depth = 15,
+    + min_child_weight = 5,
+    + subsample = 1,
+    + normalize_type = 'forest'
+    
+Pour obtenir la meileure prédiction:
+
+```{r include=FALSE}
+
+## On requitisionne
+data_train <- consoDf %>%
+    dplyr::right_join(
+        meteo_train[c("datetime", unlist(scenario))],
+        by = c("datetime")
+    ) %>%
+    dplyr::arrange(datetime) %>%
+    dplyr::filter(!is.na(P0))
+
+data_prev <- meteo_prev[c("datetime", unlist(scenario))]
+
+
+## initialiser les criteres
+res_mape <- numeric()
+res_rmse <- numeric()
+
+# Modifier la valeur de N par un grand nombre (nous avons pris 70).
+N <- 1
+
+for(i in 1:N){
+    # spliter a 79%
+    list[iTrain, iTest] <- train_test_split(data_train, 0.79)
+    ## on conserve une sauvegarde de la table de données
+    # remplacer les NA + centrer reduire
+    list[iTrain, iTest, varnums] <- deal_train_test_numerics(
+        iTrain, iTest,
+        variables = scenario$numerics,
+        by = c('Month', 'Hour'),
+        na_replace = TRUE,
+        center = TRUE,
+        scale = TRUE
+    )
+    # transformer facteurs en variables disjonctives
+    list[iTrain, iTest, varfacts] <- deal_train_test_factors(
+        train = iTrain,
+        test = iTest,
+        variables = scenario$factors
+    )
+    ## 
+    columns <- c(varnums, varfacts, scenario$others)
+    Ytrain <- iTrain[c('P0', 'DP1', 'DP2')]
+    Xtrain <- as.matrix(iTrain[columns])
+    Xtest <- as.matrix(iTest[columns])
+    
+    # Realiser xgboost prediction
+    xgb_list <- xgboost_predict(
+        Ytrain, Xtrain, Xtest,
+        nrounds = 300,
+        objective = "reg:linear",
+        eta = 0.01,
+        max_depth = 15,
+        min_child_weight = 5,
+        subsample = 1,
+        booster = "gbtree",
+        normalize_type = 'forest',
+        verbose = 0
+    )
+    puiss_prev <- xgb_list$predictions
+    puiss_prev$datetime <- iTest$datetime
+    
+    predP0 <- puiss_prev$P0
+    predP1 <- predP0 + puiss_prev$DP1
+    predP2 <- predP0 + puiss_prev$DP2
+    irespDf <- rbind(
+        data.frame(
+            datetime = iTest$datetime,
+            Hour = 0,
+            prediction = predP0,
+            reality = iTest$P0
+        ),
+        data.frame(
+            datetime = iTest$datetime,
+            Hour = 1,
+            prediction = predP1,
+            reality = iTest$P1
+        ),
+        data.frame(
+            datetime = iTest$datetime,
+            Hour = 2,
+            prediction = predP2,
+            reality = iTest$P2
+        )
+    ) %>%
+        dplyr::mutate(datetime = datetime + 3600 * Hour) %>%
+        dplyr::arrange(datetime)
+    
+    ## Evaluation
+    mape <- with(irespDf, MAPE(prediction, reality) * 100)
+    rmse <- with(irespDf, RMSE(prediction, reality))
+    res_mape <- c(res_mape, mape)
+    res_rmse <- c(res_rmse, rmse)
+}
+summary(res_mape)
+summary(res_rmse)
+
+```
+
+### Comment a été determinée la "meilleure prédiction" ?
 
 
 
-
-### Comment gérer les valeurs manquantes ?
-
-Les valeurs manquantes ont été remplacées par la moyenne par mois et par heure (toutes les 3heures, donc), ce afin de risquer de biaiser l'étude. En effet, la température n'est pas la même le 1er janvier à midi qu'à minuit, et encore moins que le 1er juillet.
-
-### Quid du centrage et de la réduction d'échelle ?
-
-Nous avons également centré réduit en fonction du mois et de l'heure.
-
-
-
+Le MAPE minimum obtenu est de **7.860093**
 
 
 
